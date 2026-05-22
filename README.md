@@ -80,6 +80,12 @@ Short contributor guide:
 Refactor notes and phased plan:
 - `docs/REFACTOR_NOTES.md`
 
+Long-horizon roadmap:
+- `docs/ROADMAP.md`
+
+Hotwheel selector design:
+- `docs/HOTWHEEL_DESIGN.md`
+
 ## Notes
 
 - `main` is the intended path forward for new work.
