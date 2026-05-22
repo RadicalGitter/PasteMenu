@@ -157,11 +157,15 @@ Add a new root-level action near existing non-category actions:
 ## Settings UX
 
 Add section in `OpenSettingsWindow()`:
-- `Enable script runner` checkbox.
+- `Scripts` tab.
+- `Enable script functionality` checkbox.
 - `Scripts folder` text field.
 - `Browse...` button (folder select).
 - `Refresh` button.
-- Optional advanced button: `Language mappings...` (phase 2).
+- Recursive scan checkbox.
+- Confirmation/show-console/wait-for-exit checkboxes.
+- Max items field.
+- `Configure scripts...` mapping editor button.
 
 Expected behavior:
 - Save immediately on toggle/change, consistent with existing settings.

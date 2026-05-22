@@ -51,6 +51,14 @@ ScriptRunnerEnsureDefaultMappings() {
         mapping[".bat"] := {runnerExe: "cmd.exe", argsTemplate: '/c "{script}"'}
 }
 
+; Returns whether script functionality is enabled.
+ScriptRunnerIsEnabled() {
+    global _ScriptRunnerState
+
+    ScriptRunnerInitDefaults()
+    return _ScriptRunnerState.enabled
+}
+
 ; Loads script-runner settings from settings.ini.
 ScriptRunnerLoadFromSettings() {
     global SettingsFile, _ScriptRunnerState

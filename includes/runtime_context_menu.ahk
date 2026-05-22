@@ -413,11 +413,11 @@ AddFarRootActionsSection(mainMenu, openUpward, scriptActionMode := "run") {
         [T("menu_close"), RootCloseMenuAction],
         [T("menu_open_settings"), OpenSettingsWindow]
     ]
-    secondaryActions := [
-        [scriptLabel, ScriptRunnerBuildMenu(scriptActionMode, true)],
-        [T("menu_new_category"), RootNewCategoryMenuAction],
-        [T("menu_entry_editor"), RootEntryEditorMenuAction]
-    ]
+    secondaryActions := []
+    if (scriptActionMode != "paste" || ScriptRunnerIsEnabled())
+        secondaryActions.Push([scriptLabel, ScriptRunnerBuildMenu(scriptActionMode, true)])
+    secondaryActions.Push([T("menu_new_category"), RootNewCategoryMenuAction])
+    secondaryActions.Push([T("menu_entry_editor"), RootEntryEditorMenuAction])
 
     if openUpward {
         AddRootActionItems(mainMenu, primaryActions)
@@ -456,7 +456,8 @@ GetWorkAreaForPoint(x, y, &left, &top, &right, &bottom) {
 
 ; Handles estimate root menu height.
 EstimateRootMenuHeight(categoryCount, shortcutCount := 0) {
-    rowCount := categoryCount + 7 ; Root actions (+script runner) + separators.
+    scriptRows := ScriptRunnerIsEnabled() ? 1 : 0
+    rowCount := categoryCount + 6 + scriptRows ; Root actions + separators.
     if (shortcutCount > 0)
         rowCount += shortcutCount + 1 ; Shortcut rows + separator.
     return (rowCount * 24) + 14

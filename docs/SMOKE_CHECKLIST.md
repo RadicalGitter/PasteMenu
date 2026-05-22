@@ -42,10 +42,13 @@ Then run these manual checks against `PasteMenu.ahk`:
 - Confirm hotkey updates and menu still opens in text context.
 
 7. Script runner (folder + mappings)
-- Open Settings and enable `Script runner`.
+- Open Settings -> `Scripts`.
+- Confirm script controls are disabled until `Enable script functionality` is checked.
+- Enable script functionality.
 - Select a scripts folder with at least one mapped extension (`.ps1`, `.py`, `.js`, `.ahk`, `.cmd`, `.bat`).
+- Toggle recursive/confirm/show-console/wait options and confirm they persist after reopening Settings.
 - In Explorer (folder context), open root menu and verify only script entries appear.
 - Run one script from folder context and confirm it launches.
 - In a text field, open root menu and verify `Paste script as text` appears.
 - Choose one script there and confirm the file content is pasted as plain text (not executed).
-- Disable script runner and verify submenu shows disabled/configure state.
+- Disable script functionality and verify `Paste script as text` no longer appears in text-field context.

@@ -109,9 +109,9 @@ if exist "%OUT%" (
 >> "%LOG%" echo.
 >> "%LOG%" echo Compiler output:
 if defined BASEEXE (
-  "%AHK2EXE%" /in "%SRC%" /out "%OUT%" /base "%BASEEXE%" >> "%LOG%" 2>&1
+  "%AHK2EXE%" /in "%SRC%" /out "%OUT%" /base "%BASEEXE%" /silent >> "%LOG%" 2>&1
 ) else (
-  "%AHK2EXE%" /in "%SRC%" /out "%OUT%" >> "%LOG%" 2>&1
+  "%AHK2EXE%" /in "%SRC%" /out "%OUT%" /silent >> "%LOG%" 2>&1
 )
 if errorlevel 1 (
   echo Build failed. See log:

@@ -26,44 +26,64 @@ OpenSettingsWindow(*) {
         }
     }
 
-    sGui := Gui("+Resize +MinSize560x470", T("settings_window_title"))
+    sGui := Gui("+Resize +MinSize620x520", T("settings_window_title"))
     sGui.SetFont("s10", "Segoe UI")
 
-    sGui.AddGroupBox("x10 y10 w540 h128", T("settings_storage"))
-    providerText := sGui.AddText("x24 y32 w510", T("msg_storage_provider") ": " GetProviderDisplayName())
-    pathText := sGui.AddText("x24 y54 w510", T("msg_storage_path") ": " DataRootDir)
-    sGui.AddText("x24 y80 w110 h20", T("settings_storage_type"))
-    storageDDL := sGui.AddDropDownList("x140 y78 w280", GetStorageModeChoices())
+    tabs := sGui.AddTab3("x10 y10 w600 h430", [T("settings_tab_texts"), T("settings_tab_scripts")])
+
+    tabs.UseTab(1)
+    sGui.AddGroupBox("x24 y50 w572 h128", T("settings_storage"))
+    providerText := sGui.AddText("x38 y72 w540", T("msg_storage_provider") ": " GetProviderDisplayName())
+    pathText := sGui.AddText("x38 y94 w540", T("msg_storage_path") ": " DataRootDir)
+    sGui.AddText("x38 y120 w110 h20", T("settings_storage_type"))
+    storageDDL := sGui.AddDropDownList("x154 y118 w300", GetStorageModeChoices())
     storageDDL.Choose(StorageModeToChoiceIndex(StorageMode))
-    btnMigrate := sGui.AddButton("x430 y76 w90 h24", T("settings_migrate"))
+    btnMigrate := sGui.AddButton("x464 y116 w100 h24", T("settings_migrate"))
     btnMigrate.Enabled := false
 
-    sGui.AddGroupBox("x10 y146 w540 h90", T("settings_hotkey"))
-    hotkeyEdit := sGui.AddText("x24 y170 w380 h24 +Border", HotkeyToDisplay(ConfiguredHotkey))
-    btnHotkey := sGui.AddButton("x412 y168 w120 h26", T("menu_configure_hotkey"))
+    sGui.AddGroupBox("x24 y188 w572 h80", T("settings_hotkey"))
+    hotkeyEdit := sGui.AddText("x38 y216 w390 h24 +Border", HotkeyToDisplay(ConfiguredHotkey))
+    btnHotkey := sGui.AddButton("x438 y214 w126 h26", T("menu_configure_hotkey"))
 
-    sGui.AddGroupBox("x10 y244 w540 h80", T("settings_language"))
-    langDDL := sGui.AddDropDownList("x24 y270 w180 Choose1", [T("menu_language_en"), T("menu_language_sv")])
+    sGui.AddGroupBox("x24 y278 w572 h80", T("settings_language"))
+    langDDL := sGui.AddDropDownList("x38 y306 w190 Choose1", [T("menu_language_en"), T("menu_language_sv")])
     if (AppLanguage = "sv")
         langDDL.Choose(2)
-    chkBeta := sGui.AddCheckbox("x240 y272 w280", CheckBetaReleases ? T("toggle_beta_on") : T("toggle_beta_off"))
+    chkBeta := sGui.AddCheckbox("x250 y308 w310", CheckBetaReleases ? T("toggle_beta_on") : T("toggle_beta_off"))
     chkBeta.Value := CheckBetaReleases ? 1 : 0
 
-    sGui.AddGroupBox("x10 y330 w540 h96", T("settings_scripts"))
-    chkScriptRunner := sGui.AddCheckbox("x24 y352 w200", T("settings_scripts_enable"))
+    tabs.UseTab(2)
+    chkScriptRunner := sGui.AddCheckbox("x32 y52 w260 h24", T("settings_scripts_enable"))
     chkScriptRunner.Value := _ScriptRunnerState.enabled ? 1 : 0
-    btnScriptConfigure := sGui.AddButton("x420 y350 w112 h24", T("settings_scripts_configure"))
-    sGui.AddText("x24 y380 w98 h20", T("settings_scripts_folder"))
-    scriptFolderEdit := sGui.AddEdit("x128 y378 w286 h24", _ScriptRunnerState.folder)
-    btnScriptBrowse := sGui.AddButton("x420 y378 w58 h24", T("settings_scripts_browse"))
-    btnScriptRefresh := sGui.AddButton("x482 y378 w50 h24", T("settings_scripts_refresh"))
 
-    btnStorage := sGui.AddButton("x10 y436 w90 h30", T("menu_show_storage"))
-    btnValidate := sGui.AddButton("x108 y436 w90 h30", T("settings_validate"))
-    btnRestore := sGui.AddButton("x206 y436 w90 h30", T("settings_restore"))
-    btnUndo := sGui.AddButton("x304 y436 w80 h30", T("settings_undo"))
-    btnUpdates := sGui.AddButton("x392 y436 w90 h30", T("settings_updates"))
-    btnClose := sGui.AddButton("x490 y436 w60 h30", T("settings_close"))
+    lblScriptFolder := sGui.AddText("x32 y92 w110 h20", T("settings_scripts_folder"))
+    scriptFolderEdit := sGui.AddEdit("x150 y90 w310 h24", _ScriptRunnerState.folder)
+    btnScriptBrowse := sGui.AddButton("x468 y90 w62 h24", T("settings_scripts_browse"))
+    btnScriptRefresh := sGui.AddButton("x536 y90 w54 h24", T("settings_scripts_refresh"))
+
+    chkScriptRecursive := sGui.AddCheckbox("x32 y132 w220 h24", T("settings_scripts_recursive"))
+    chkScriptRecursive.Value := _ScriptRunnerState.recursive ? 1 : 0
+    chkScriptRequireConfirm := sGui.AddCheckbox("x300 y132 w260 h24", T("settings_scripts_require_confirm"))
+    chkScriptRequireConfirm.Value := _ScriptRunnerState.requireConfirm ? 1 : 0
+    chkScriptShowConsole := sGui.AddCheckbox("x32 y162 w220 h24", T("settings_scripts_show_console"))
+    chkScriptShowConsole.Value := _ScriptRunnerState.showConsole ? 1 : 0
+    chkScriptWaitForExit := sGui.AddCheckbox("x300 y162 w260 h24", T("settings_scripts_wait_for_exit"))
+    chkScriptWaitForExit.Value := _ScriptRunnerState.waitForExit ? 1 : 0
+
+    lblScriptMaxItems := sGui.AddText("x32 y202 w110 h20", T("settings_scripts_max_items"))
+    scriptMaxItemsEdit := sGui.AddEdit("x150 y200 w70 h24 Number", _ScriptRunnerState.maxItems "")
+
+    btnScriptConfigure := sGui.AddButton("x32 y242 w150 h26", T("settings_scripts_configure"))
+    btnScriptOpenFolder := sGui.AddButton("x194 y242 w150 h26", T("menu_run_script_open_folder"))
+
+    tabs.UseTab()
+
+    btnStorage := sGui.AddButton("x10 y455 w90 h30", T("menu_show_storage"))
+    btnValidate := sGui.AddButton("x108 y455 w100 h30", T("settings_validate"))
+    btnRestore := sGui.AddButton("x216 y455 w100 h30", T("settings_restore"))
+    btnUndo := sGui.AddButton("x324 y455 w80 h30", T("settings_undo"))
+    btnUpdates := sGui.AddButton("x412 y455 w112 h30", T("settings_updates"))
+    btnClose := sGui.AddButton("x550 y455 w60 h30", T("settings_close"))
     btnRestore.Enabled := false
     btnUndo.Enabled := false
 
@@ -78,10 +98,18 @@ OpenSettingsWindow(*) {
         langDDL: langDDL,
         chkBeta: chkBeta,
         chkScriptRunner: chkScriptRunner,
+        lblScriptFolder: lblScriptFolder,
         btnScriptConfigure: btnScriptConfigure,
+        btnScriptOpenFolder: btnScriptOpenFolder,
         scriptFolderEdit: scriptFolderEdit,
         btnScriptBrowse: btnScriptBrowse,
         btnScriptRefresh: btnScriptRefresh,
+        chkScriptRecursive: chkScriptRecursive,
+        chkScriptRequireConfirm: chkScriptRequireConfirm,
+        chkScriptShowConsole: chkScriptShowConsole,
+        chkScriptWaitForExit: chkScriptWaitForExit,
+        lblScriptMaxItems: lblScriptMaxItems,
+        scriptMaxItemsEdit: scriptMaxItemsEdit,
         btnRestore: btnRestore,
         btnUndo: btnUndo
     }
@@ -94,9 +122,15 @@ OpenSettingsWindow(*) {
     chkBeta.OnEvent("Click", SettingsWindowBetaChanged.Bind(state))
     chkScriptRunner.OnEvent("Click", SettingsWindowScriptRunnerEnabledChanged.Bind(state))
     btnScriptConfigure.OnEvent("Click", SettingsWindowScriptRunnerConfigure.Bind(state))
+    btnScriptOpenFolder.OnEvent("Click", SettingsWindowScriptRunnerOpenFolder.Bind(state))
     scriptFolderEdit.OnEvent("LoseFocus", SettingsWindowScriptRunnerFolderEdited.Bind(state))
     btnScriptBrowse.OnEvent("Click", SettingsWindowScriptRunnerBrowseFolder.Bind(state))
     btnScriptRefresh.OnEvent("Click", SettingsWindowScriptRunnerRefresh.Bind(state))
+    chkScriptRecursive.OnEvent("Click", SettingsWindowScriptRunnerOptionChanged.Bind(state, "recursive"))
+    chkScriptRequireConfirm.OnEvent("Click", SettingsWindowScriptRunnerOptionChanged.Bind(state, "requireConfirm"))
+    chkScriptShowConsole.OnEvent("Click", SettingsWindowScriptRunnerOptionChanged.Bind(state, "showConsole"))
+    chkScriptWaitForExit.OnEvent("Click", SettingsWindowScriptRunnerOptionChanged.Bind(state, "waitForExit"))
+    scriptMaxItemsEdit.OnEvent("LoseFocus", SettingsWindowScriptRunnerMaxItemsEdited.Bind(state))
     btnStorage.OnEvent("Click", SettingsOpenStorageFromState.Bind(state))
     btnValidate.OnEvent("Click", SettingsValidateFixNowAction)
     btnRestore.OnEvent("Click", SettingsRestoreBackupAction.Bind(state))
@@ -110,7 +144,7 @@ OpenSettingsWindow(*) {
     UpdateRestoreBackupButtonState(state)
     UpdateUndoButtonState(state)
     UpdateScriptRunnerControlsState(state)
-    sGui.Show("w560 h474")
+    sGui.Show("w620 h500")
 }
 
 ; Sets or applies settings open hotkey dialog.
@@ -158,6 +192,11 @@ SettingsWindowScriptRunnerConfigure(state, *) {
     OpenScriptRunnerMappingDialog()
 }
 
+; Opens configured scripts folder from settings.
+SettingsWindowScriptRunnerOpenFolder(state, *) {
+    ScriptRunnerOpenFolderAction()
+}
+
 ; Sets or applies settings window script runner folder edited.
 SettingsWindowScriptRunnerFolderEdited(state, ctrl, *) {
     global _ScriptRunnerState
@@ -201,6 +240,48 @@ SettingsWindowScriptRunnerRefresh(state, *) {
     ShowTransientToolTip(T("settings_scripts_refresh") ": " items.Length)
 }
 
+; Sets or applies one script runner boolean option.
+SettingsWindowScriptRunnerOptionChanged(state, key, ctrl, *) {
+    global _ScriptRunnerState
+
+    ScriptRunnerInitDefaults()
+    value := (ctrl.Value = 1)
+    switch key {
+        case "recursive":
+            _ScriptRunnerState.recursive := value
+            ScriptRunnerRefreshCache(true)
+        case "requireConfirm":
+            _ScriptRunnerState.requireConfirm := value
+        case "showConsole":
+            _ScriptRunnerState.showConsole := value
+        case "waitForExit":
+            _ScriptRunnerState.waitForExit := value
+    }
+    SaveSettings()
+}
+
+; Sets or applies script runner maximum menu item count.
+SettingsWindowScriptRunnerMaxItemsEdited(state, ctrl, *) {
+    global _ScriptRunnerState
+
+    ScriptRunnerInitDefaults()
+    raw := Trim(ctrl.Value)
+    if RegExMatch(raw, "^-?\d+$")
+        value := raw + 0
+    else
+        value := _ScriptRunnerState.maxItems
+
+    if (value < 1)
+        value := 1
+    if (value > 300)
+        value := 300
+
+    _ScriptRunnerState.maxItems := value
+    ctrl.Value := value ""
+    SaveSettings()
+    ScriptRunnerRefreshCache(true)
+}
+
 ; Updates settings script runner control enablement.
 UpdateScriptRunnerControlsState(state) {
     if !IsObject(state)
@@ -209,10 +290,24 @@ UpdateScriptRunnerControlsState(state) {
         return
 
     enabled := (state.chkScriptRunner.Value = 1)
-    state.btnScriptConfigure.Enabled := enabled
-    state.scriptFolderEdit.Enabled := enabled
-    state.btnScriptBrowse.Enabled := enabled
-    state.btnScriptRefresh.Enabled := enabled
+    controls := [
+        "lblScriptFolder",
+        "scriptFolderEdit",
+        "btnScriptBrowse",
+        "btnScriptRefresh",
+        "chkScriptRecursive",
+        "chkScriptRequireConfirm",
+        "chkScriptShowConsole",
+        "chkScriptWaitForExit",
+        "lblScriptMaxItems",
+        "scriptMaxItemsEdit",
+        "btnScriptConfigure",
+        "btnScriptOpenFolder"
+    ]
+    for _, prop in controls {
+        if state.HasOwnProp(prop)
+            state.%prop%.Enabled := enabled
+    }
 }
 
 ; Updates update storage migrate button state.
