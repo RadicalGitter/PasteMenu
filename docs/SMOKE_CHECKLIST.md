@@ -1,7 +1,7 @@
 # Refactor Smoke Checklist
 
 Run automated checks first:
-- `smoke_check.bat`
+- `tools\smoke_check.bat`
 
 Then run these manual checks against `PasteMenu.ahk`:
 

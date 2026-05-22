@@ -56,7 +56,7 @@ Legend:
 
 ## How To Verify Quickly (Non-Programmer Friendly)
 1. Run:
-   - `smoke_check.bat`
+   - `tools\smoke_check.bat`
 2. Start:
    - `PasteMenu.ahk`
 3. Try these in order:

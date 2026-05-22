@@ -29,8 +29,8 @@ State which user behaviors must remain unchanged.
 3. 
 
 ## Validation Plan
-- [ ] `smoke_check.bat`
-- [ ] Manual checks from `SMOKE_CHECKLIST.md`
+- [ ] `tools/smoke_check.bat`
+- [ ] Manual checks from `docs/SMOKE_CHECKLIST.md`
 - [ ] Additional targeted checks:
 
 ## Risks

@@ -33,16 +33,23 @@ Use this file for active development:
 If your compiler setup is ready, use:
 - `build_pastemenu.bat`
 
+Build outputs are written to:
+- `dist/PasteMenu.exe`
+
+Build logs and previous executable backups are written to ignored folders under:
+- `build/logs/`
+- `build/backups/`
+
 ## Validation
 
 Automated smoke checks:
-- `smoke_check.bat`
+- `tools/smoke_check.bat`
 
 Manual checklist:
-- `SMOKE_CHECKLIST.md`
+- `docs/SMOKE_CHECKLIST.md`
 
 Behavior parity overview:
-- `BEHAVIOR_PARITY.md`
+- `docs/BEHAVIOR_PARITY.md`
 
 ## Project Structure
 
@@ -68,10 +75,10 @@ Behavior parity overview:
 ## Contributing
 
 Short contributor guide:
-- `CONTRIBUTING_SHORT.md`
+- `CONTRIBUTING.md`
 
 Refactor notes and phased plan:
-- `REFACTOR_NOTES.md`
+- `docs/REFACTOR_NOTES.md`
 
 ## Notes
 

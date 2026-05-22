@@ -209,3 +209,8 @@ __marimo__/
 # AutoHotkey build outputs
 *.exe
 PasteMenu_backup_*.exe
+dist/
+build/
+
+# Personal Windows shortcuts
+*.lnk

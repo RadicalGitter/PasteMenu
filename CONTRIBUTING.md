@@ -12,7 +12,7 @@ This is the practical guide for making safe changes quickly.
 
 ## 3) Validate Before Commit
 Run:
-- `smoke_check.bat`
+- `tools/smoke_check.bat`
 
 Then do quick manual checks:
 - Open menu and paste in a text field.
@@ -20,7 +20,7 @@ Then do quick manual checks:
 - Test restore + undo once.
 
 Manual checklist:
-- `SMOKE_CHECKLIST.md`
+- `docs/SMOKE_CHECKLIST.md`
 
 ## 4) Preserve Behavior First
 - Refactor for readability/structure without changing user behavior unless explicitly intended.

@@ -224,7 +224,7 @@ Errors should use localized `MsgBox` or transient tooltip, consistent with curre
 3. Add settings controls in `ui_settings.ahk` for enable/folder/refresh.
 4. Add root-menu/submenu wiring in `runtime_context_menu.ahk`.
 5. Optional tray shortcut in `runtime_hotkeys.ahk` (`Run script...`).
-6. Update `SMOKE_CHECKLIST.md` with script-runner checks.
+6. Update `docs/SMOKE_CHECKLIST.md` with script-runner checks.
 
 ## Smoke Checks (Additions)
 

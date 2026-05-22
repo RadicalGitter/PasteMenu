@@ -1,10 +1,11 @@
 param(
-    [string]$Script = (Join-Path $PSScriptRoot "PasteMenu.ahk"),
+    [string]$Script = (Join-Path $PSScriptRoot "..\PasteMenu.ahk"),
     [int]$TimeoutMs = 1500
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+$RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 
 function Get-AhkExe {
     $candidates = @(
@@ -78,7 +79,7 @@ $required = @(
     "includes\paste_markup.ahk"
 )
 foreach ($rel in $required) {
-    $full = Join-Path $PSScriptRoot $rel
+    $full = Join-Path $RepoRoot $rel
     if (-not (Test-Path $full)) {
         Write-Host "[FAIL] Missing include: $rel" -ForegroundColor Red
         exit 1
@@ -88,5 +89,5 @@ Write-Host "[PASS] All expected include modules exist."
 
 Write-Host ""
 Write-Host "[DONE] Automated checks passed."
-Write-Host "Next: run manual checks in SMOKE_CHECKLIST.md"
+Write-Host "Next: run manual checks in docs\SMOKE_CHECKLIST.md"
 exit 0

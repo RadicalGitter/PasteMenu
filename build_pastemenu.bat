@@ -3,7 +3,11 @@ setlocal EnableExtensions EnableDelayedExpansion
 
 set "SCRIPT_DIR=%~dp0"
 set "SRC=%SCRIPT_DIR%PasteMenu.ahk"
-set "OUT=%SCRIPT_DIR%PasteMenu.exe"
+set "DIST_DIR=%SCRIPT_DIR%dist"
+set "BUILD_DIR=%SCRIPT_DIR%build"
+set "BACKUP_DIR=%BUILD_DIR%\backups"
+set "LOG_DIR=%BUILD_DIR%\logs"
+set "OUT=%DIST_DIR%\PasteMenu.exe"
 set "AHK2EXE="
 set "BASEEXE="
 
@@ -12,6 +16,26 @@ if not exist "%SRC%" (
   echo   %SRC%
   exit /b 1
 )
+
+if not exist "%DIST_DIR%" mkdir "%DIST_DIR%"
+if not exist "%BACKUP_DIR%" mkdir "%BACKUP_DIR%"
+if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
+
+set "STAMP="
+for /f "delims=" %%T in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do (
+  if not defined STAMP set "STAMP=%%T"
+)
+
+if not defined STAMP (
+  echo Failed to generate build timestamp.
+  exit /b 1
+)
+
+set "LOG=%LOG_DIR%\build_!STAMP!.log"
+> "%LOG%" echo PasteMenu build !STAMP!
+>> "%LOG%" echo Source: %SRC%
+>> "%LOG%" echo Output: %OUT%
+>> "%LOG%" echo.
 
 for %%P in (
   "%ProgramFiles%\AutoHotkey\Ahk2Exe.exe"
@@ -38,6 +62,7 @@ if not defined AHK2EXE (
   echo.
   echo Suggested command:
   echo   "%ProgramFiles%\AutoHotkey\UX\AutoHotkeyUX.exe" "%ProgramFiles%\AutoHotkey\UX\install-ahk2exe.ahk"
+  >> "%LOG%" echo Ahk2Exe compiler not found.
   exit /b 1
 )
 
@@ -52,56 +77,58 @@ for %%B in (
 
 echo Using Ahk2Exe:
 echo   %AHK2EXE%
+>> "%LOG%" echo Ahk2Exe: %AHK2EXE%
 if defined BASEEXE (
   echo Using base:
   echo   %BASEEXE%
+  >> "%LOG%" echo Base: %BASEEXE%
 )
 echo.
 echo Building:
 echo   %SRC%
-echo -> %OUT%
+echo -^> %OUT%
+echo Log:
+echo   %LOG%
+echo.
 
 if exist "%OUT%" (
-  set "STAMP="
-  for /f "delims=" %%T in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do (
-    if not defined STAMP set "STAMP=%%T"
-  )
-
-  if not defined STAMP (
-    echo Failed to generate backup timestamp.
-    exit /b 1
-  )
-
-  set "BACKUP=%SCRIPT_DIR%PasteMenu_backup_!STAMP!.exe"
+  set "BACKUP=%BACKUP_DIR%\PasteMenu_backup_!STAMP!.exe"
   copy /y "%OUT%" "!BACKUP!" >nul
   if errorlevel 1 (
     echo Failed to create backup:
     echo   !BACKUP!
+    >> "%LOG%" echo Failed to create backup: !BACKUP!
     exit /b 1
   )
   echo Backup created:
   echo   !BACKUP!
   echo.
+  >> "%LOG%" echo Backup: !BACKUP!
 )
 
+>> "%LOG%" echo.
+>> "%LOG%" echo Compiler output:
 if defined BASEEXE (
-  "%AHK2EXE%" /in "%SRC%" /out "%OUT%" /base "%BASEEXE%"
+  "%AHK2EXE%" /in "%SRC%" /out "%OUT%" /base "%BASEEXE%" >> "%LOG%" 2>&1
 ) else (
-  "%AHK2EXE%" /in "%SRC%" /out "%OUT%"
+  "%AHK2EXE%" /in "%SRC%" /out "%OUT%" >> "%LOG%" 2>&1
 )
 if errorlevel 1 (
-  echo.
-  echo Build failed.
+  echo Build failed. See log:
+  echo   %LOG%
   exit /b 1
 )
 
 if exist "%OUT%" (
-  echo.
-  echo Build succeeded: %OUT%
+  echo Build succeeded:
+  echo   %OUT%
+  echo Log:
+  echo   %LOG%
   exit /b 0
 )
 
-echo.
 echo Build command finished, but output file was not found:
 echo   %OUT%
+echo See log:
+echo   %LOG%
 exit /b 1
