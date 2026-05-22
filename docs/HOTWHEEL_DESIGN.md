@@ -60,11 +60,12 @@ Behavior:
 
 - Hover highlights an item.
 - Left-click activates the highlighted item.
-- Releasing the hotkey cancels if nothing has been clicked.
+- Releasing the hotkey does not close the hotwheel.
 - Any other key input cancels.
 - Clicking settings opens Settings and closes the hotwheel.
 - Clicking a paste item pastes and closes the hotwheel.
-- Clicking an unavailable/empty item closes the hotwheel without pasting.
+- Left-clicking an unavailable/empty area closes the hotwheel without pasting.
+- Right-clicking anywhere closes the hotwheel without pasting.
 
 Usage scoring:
 
@@ -170,11 +171,12 @@ Likely technical approach:
 
 ## Cancellation Rules
 
-- Releasing the held hotkey cancels if press-and-hold invocation is used.
+- Releasing the held hotkey leaves the hotwheel open.
 - Escape cancels.
 - Any unrelated key input cancels.
 - Left-click on valid target selects and closes.
 - Left-click on invalid/empty target closes without action.
+- Right-click anywhere closes without action.
 - Losing focus should close the hotwheel.
 
 ## Validation Checklist
@@ -187,6 +189,8 @@ Likely technical approach:
 - Click on settings opens Settings.
 - Category hover expands entries.
 - Entry click pastes into the original target.
+- Releasing the hotkey does not close the hotwheel.
 - Escape cancels.
 - Unrelated key input cancels.
+- Right-click closes without pasting.
 - Normal root menu behavior is unchanged.
