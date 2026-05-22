@@ -6,25 +6,24 @@ Add a fast visual selector for frequent paste actions without replacing the exis
 
 ## Concept
 
-Pressing a dedicated hotkey, or holding the existing hotkey, opens a fan-shaped selector near the cursor.
+Holding the existing hotkey opens a fan-shaped selector near the cursor. A quick tap keeps opening the current root menu.
 
 The fan is not a full circle. It should align in an available cardinal direction so it can avoid screen edges more naturally than a radial menu. Corner cases can be handled later; the first version can use a simple best-fit direction.
 
 ## Invocation
 
-Open questions:
+Chosen first implementation:
 
-- Dedicated second hotkey, or press-and-hold on the existing hotkey?
-- If press-and-hold is used, what hold threshold feels right? A starting point is 250-350 ms.
-- Should a quick tap of the original hotkey keep opening the current menu?
+- Quick tap of the configured hotkey opens the current root menu.
+- Press-and-hold of the configured hotkey opens the hotwheel.
+- Initial hold threshold: 50 ms.
+- Add a setting for the hold threshold so this can be tuned if 50 ms is too eager.
 
-Recommended first implementation:
+Reasoning:
 
-- Keep the existing hotkey as-is.
-- Add an optional second hotkey for the hotwheel.
-- Consider press-and-hold after the hotwheel behavior is stable.
-
-Reasoning: press-and-hold is attractive, but it adds timing ambiguity to the app's most important interaction.
+- The hotwheel should feel immediate.
+- The existing root menu remains available through a quick tap.
+- A setting gives an escape hatch if keyboard repeat timing or mouse-button behavior differs by device.
 
 ## Placement
 
@@ -45,6 +44,7 @@ Suggested sizing:
 - Outer fan radius: 260-340 px depending on category count.
 - Minimum category slice angle/width should preserve readable labels.
 - Use fixed pixel defaults first; relative scaling can come later after it feels good.
+- Hovered category slice can balloon to roughly three fifths of the total fan width/arc to create room for entries.
 
 ## Center Zone
 
@@ -66,9 +66,23 @@ Behavior:
 - Clicking a paste item pastes and closes the hotwheel.
 - Clicking an unavailable/empty item closes the hotwheel without pasting.
 
+Usage scoring:
+
+- "Most-used paste" should use recent decaying usage, not pure all-time count.
+- Default scoring window: last 2 hours.
+- More recent usage should matter more than older usage.
+- The leader should be easy to overtake; one item should not stay dominant just because it was used many times earlier.
+- Keep all-time usage available as a possible future option, but do not use it as the default.
+
+Proposed scoring heuristic:
+
+- Store each paste use as count + last-used timestamp.
+- For ranking, compute a decayed score from recent events.
+- Start with an exponential decay half-life around 30 minutes inside a 2-hour lookback.
+- A paste used recently once or twice should be able to overtake an older leader.
+
 Open questions:
 
-- Should "most-used paste" be all-time usage, recent usage, or a decaying score?
 - Should "last used paste" update only after successful paste, or after menu selection even if paste target fails?
 - Should the center labels show category + title, or title only?
 
@@ -79,22 +93,22 @@ Outside the center zone, the fan displays categories.
 Category behavior:
 
 - Categories are arranged automatically into equal-size slices.
+- Category order follows file/editor order.
 - Moving the mouse over a category highlights that slice.
-- Hovering a category expands it into entry slices for that category.
+- Hovering a category expands/balloons that category to roughly three fifths of the fan, then shows entries inside that larger area.
 - Clicking an entry pastes it and closes the hotwheel.
 - The hotwheel does not expose add/edit/delete actions.
 
 Entry fan behavior:
 
 - Entry slices should appear inside or just beyond the selected category slice.
+- Entry order follows file/editor order.
 - Entry labels should be readable and clipped gracefully.
 - If a category has too many entries, v1 can show the first N and leave overflow for the normal menu/editor.
 
 Open questions:
 
 - How many category slices should be allowed before the fan becomes too dense?
-- Should category order follow the snippet file order, usage frequency, or a hybrid?
-- Should entry order follow snippet order, usage frequency, or recent use?
 - How should empty categories appear, if at all?
 
 ## Visual Style
