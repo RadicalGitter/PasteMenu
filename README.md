@@ -86,6 +86,9 @@ Long-horizon roadmap:
 Hotwheel selector design:
 - `docs/HOTWHEEL_DESIGN.md`
 
+LLM-oriented project progression tracker:
+- `docs/PROJECT_PROGRESS.md`
+
 ## Notes
 
 - `main` is the intended path forward for new work.
