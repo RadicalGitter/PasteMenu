@@ -9,15 +9,58 @@ RegisterConfiguredHotkey() {
     }
 
     try {
-        Hotkey(ConfiguredHotkey, ShowSnippetMenu, "On")
+        Hotkey(ConfiguredHotkey, DispatchConfiguredHotkey, "On")
         _CurrentHotkeyRegistered := ConfiguredHotkey
         return true
     } catch {
         ConfiguredHotkey := "^F9"
-        try Hotkey("^F9", ShowSnippetMenu, "On")
+        try Hotkey("^F9", DispatchConfiguredHotkey, "On")
         _CurrentHotkeyRegistered := "^F9"
         return false
     }
+}
+
+DispatchConfiguredHotkey(*) {
+    global ConfiguredHotkey, HotwheelHoldThresholdMs
+
+    triggerKey := GetHotkeyTriggerKey(ConfiguredHotkey)
+    thresholdMs := NormalizeHotwheelHoldThresholdMs(HotwheelHoldThresholdMs)
+    if (triggerKey = "") {
+        ShowSnippetMenu()
+        return
+    }
+
+    thresholdSeconds := Format("{:.3f}", thresholdMs / 1000)
+    if KeyWait(triggerKey, "T" thresholdSeconds)
+        ShowSnippetMenu()
+    else
+        ShowHotwheel()
+}
+
+GetHotkeyTriggerKey(hotkeyName) {
+    hk := Trim(hotkeyName)
+    if (hk = "")
+        return ""
+
+    ; Strip option prefixes and modifiers, leaving the physical trigger key.
+    while (hk != "" && InStr("~*$", SubStr(hk, 1, 1)))
+        hk := SubStr(hk, 2)
+    while (hk != "" && InStr("^!+#", SubStr(hk, 1, 1)))
+        hk := SubStr(hk, 2)
+
+    return Trim(hk)
+}
+
+NormalizeHotwheelHoldThresholdMs(value) {
+    try threshold := value + 0
+    catch {
+        threshold := 200
+    }
+    if (threshold < 100)
+        threshold := 100
+    if (threshold > 500)
+        threshold := 500
+    return Round(threshold)
 }
 
 ; Sets or applies setup tray menu.

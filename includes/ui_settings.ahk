@@ -13,7 +13,7 @@ SettingsConfigureHotkeyAction(*) {
 ; Opens or shows open settings window.
 OpenSettingsWindow(*) {
     global _SettingsWindowState, AppLanguage, CheckBetaReleases, ConfiguredHotkey
-    global StorageMode, DataRootDir
+    global StorageMode, DataRootDir, HotwheelHoldThresholdMs
     global _ScriptRunnerState
 
     ScriptRunnerInitDefaults()
@@ -44,6 +44,8 @@ OpenSettingsWindow(*) {
     sGui.AddGroupBox("x24 y188 w572 h80", T("settings_hotkey"))
     hotkeyEdit := sGui.AddText("x38 y216 w390 h24 +Border", HotkeyToDisplay(ConfiguredHotkey))
     btnHotkey := sGui.AddButton("x438 y214 w126 h26", T("menu_configure_hotkey"))
+    sGui.AddText("x38 y246 w130 h20", T("settings_hotwheel_hold_ms"))
+    thresholdEdit := sGui.AddEdit("x174 y244 w70 h24 Number", NormalizeHotwheelHoldThresholdMs(HotwheelHoldThresholdMs) "")
 
     sGui.AddGroupBox("x24 y278 w572 h80", T("settings_language"))
     langDDL := sGui.AddDropDownList("x38 y306 w190 Choose1", [T("menu_language_en"), T("menu_language_sv")])
@@ -93,6 +95,7 @@ OpenSettingsWindow(*) {
         providerText: providerText,
         pathText: pathText,
         hotkeyEdit: hotkeyEdit,
+        thresholdEdit: thresholdEdit,
         storageDDL: storageDDL,
         btnMigrate: btnMigrate,
         langDDL: langDDL,
@@ -116,6 +119,7 @@ OpenSettingsWindow(*) {
     _SettingsWindowState := state
 
     btnHotkey.OnEvent("Click", SettingsOpenHotkeyDialog.Bind(state))
+    thresholdEdit.OnEvent("LoseFocus", SettingsWindowHotwheelThresholdEdited.Bind(state))
     storageDDL.OnEvent("Change", SettingsWindowStorageSelectionChanged.Bind(state))
     btnMigrate.OnEvent("Click", SettingsWindowMigrateStorage.Bind(state))
     langDDL.OnEvent("Change", SettingsWindowLanguageChanged.Bind(state))
@@ -151,6 +155,13 @@ OpenSettingsWindow(*) {
 SettingsOpenHotkeyDialog(state, *) {
     OpenHotkeyConfigDialog(false)
     state.hotkeyEdit.Text := HotkeyToDisplay(ConfiguredHotkey)
+}
+
+SettingsWindowHotwheelThresholdEdited(state, ctrl, *) {
+    global HotwheelHoldThresholdMs
+    HotwheelHoldThresholdMs := NormalizeHotwheelHoldThresholdMs(ctrl.Value)
+    ctrl.Value := HotwheelHoldThresholdMs ""
+    SaveSettings()
 }
 
 ; Sets or applies settings window language changed.

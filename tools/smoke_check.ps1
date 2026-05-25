@@ -69,9 +69,14 @@ Write-Host ""
 Write-Host "[STEP] Structural presence checks"
 $required = @(
     "includes\core_storage.ahk",
+    "includes\core_usage_stats.ahk",
     "includes\script_runner.ahk",
     "includes\runtime_hotkeys.ahk",
     "includes\ui_settings.ahk",
+    "includes\ui_hotwheel.ahk",
+    "includes\ui_hotwheel_geometry.ahk",
+    "includes\ui_hotwheel_state.ahk",
+    "includes\ui_hotwheel_render.ahk",
     "includes\startup.ahk",
     "includes\core_snippets_backup.ahk",
     "includes\runtime_context_menu.ahk",

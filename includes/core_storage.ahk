@@ -233,6 +233,7 @@ EnsureParentDirectory(path) {
 ; Loads or deserializes load settings.
 LoadSettings() {
     global SettingsFile, AppLanguage, CheckBetaReleases, ConfiguredHotkey, ShowSelectedNearClick
+    global HotwheelHoldThresholdMs
 
     EnsureParentDirectory(SettingsFile)
 
@@ -254,19 +255,23 @@ LoadSettings() {
     nearRaw := IniRead(SettingsFile, "general", "show_selected_near_click", ShowSelectedNearClick ? "1" : "0")
     ShowSelectedNearClick := (nearRaw = "1")
 
+    holdRaw := IniRead(SettingsFile, "general", "hotwheel_hold_threshold_ms", HotwheelHoldThresholdMs "")
+    HotwheelHoldThresholdMs := NormalizeHotwheelHoldThresholdMs(holdRaw)
+
     ScriptRunnerLoadFromSettings()
 }
 
 ; Saves or serializes save settings.
 SaveSettings() {
     global SettingsFile, AppLanguage, CheckBetaReleases, ConfiguredHotkey, StorageMode
-    global ShowSelectedNearClick
+    global ShowSelectedNearClick, HotwheelHoldThresholdMs
 
     EnsureParentDirectory(SettingsFile)
     IniWrite(AppLanguage, SettingsFile, "general", "language")
     IniWrite(ConfiguredHotkey, SettingsFile, "general", "hotkey")
     IniWrite(StorageMode, SettingsFile, "general", "storage_mode")
     IniWrite(ShowSelectedNearClick ? "1" : "0", SettingsFile, "general", "show_selected_near_click")
+    IniWrite(NormalizeHotwheelHoldThresholdMs(HotwheelHoldThresholdMs), SettingsFile, "general", "hotwheel_hold_threshold_ms")
     IniWrite(CheckBetaReleases ? "1" : "0", SettingsFile, "updates", "check_beta")
     ScriptRunnerSaveToSettings()
     SaveStorageMode()
@@ -389,6 +394,7 @@ T(key) {
             case "settings_tab_scripts": return "Scripts"
             case "settings_storage": return "Lagring"
             case "settings_hotkey": return "Snabbtangent"
+            case "settings_hotwheel_hold_ms": return "Hålltröskel (ms)"
             case "editor_move": return "Flytta"
             case "msg_move_no_target_category": return "Ingen annan kategori finns att flytta till."
             case "msg_move_target_prompt": return "Flytta posten till kategori:"
@@ -559,6 +565,7 @@ T(key) {
         case "settings_tab_scripts": return "Scripts"
         case "settings_storage": return "Storage"
         case "settings_hotkey": return "Hotkey"
+        case "settings_hotwheel_hold_ms": return "Hold threshold (ms)"
         case "editor_move": return "Move"
         case "msg_move_no_target_category": return "No other category is available to move to."
         case "msg_move_target_prompt": return "Move entry to category:"
@@ -702,10 +709,11 @@ StorageModeFromChoiceIndex(idx) {
 
 ; Sets or applies apply storage selection.
 ApplyStorageSelection() {
-    global StorageMode, DataRootDir, SnippetFile, SettingsFile
+    global StorageMode, DataRootDir, SnippetFile, SettingsFile, UsageStatsFile
     DataRootDir := ResolveDataRootDir(StorageMode)
     SnippetFile := DataRootDir "\pastemenu.txt"
     SettingsFile := DataRootDir "\settings.ini"
+    UsageStatsFile := DataRootDir "\usage.ini"
 }
 
 ; Handles resolve storage root strict.

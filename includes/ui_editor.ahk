@@ -123,6 +123,7 @@ PasteSnippet(category, title, *) {
 
     rawText := _EntriesByCategory[category][title]
     SetLastSelectedMenuEntry(category, title)
+    UsageStatsRecordSuccessfulPaste(category, title)
     if (EnableRichText)
         PasteRich(rawText, target)
     else

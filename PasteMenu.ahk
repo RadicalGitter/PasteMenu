@@ -27,6 +27,7 @@ DataRootProvider := "appdata"
 DataRootDir      := A_AppData "\PasteMenu"
 SnippetFile      := DataRootDir "\pastemenu.txt"
 SettingsFile     := DataRootDir "\settings.ini"
+UsageStatsFile   := DataRootDir "\usage.ini"
 StorageBootstrapFile := A_AppData "\PasteMenu\storage.ini"
 SnippetEncoding  := "UTF-8"   ; Andra till "CP1252" om filen inte ar UTF-8.
 EnableRichText   := true      ; Forsok klistra in italics + lankar som rich text (HTML).
@@ -37,6 +38,7 @@ CheckBetaReleases := false
 ConfiguredHotkey := "" ; e.g. ^F9
 StorageMode      := "auto" ; auto | dropbox | onedrive | appdata
 ShowSelectedNearClick := false
+HotwheelHoldThresholdMs := 200
 
 ; ======================= SLUT PA SEKTION 1 (ANDRA HAR) =======================
 
@@ -61,13 +63,20 @@ _LastSelectedMenuCategory := ""
 _LastSelectedMenuTitle    := ""
 _PendingPasteTarget   := 0
 _ScriptRunnerState    := 0
+_UsageStatsState      := 0
+_HotwheelWindowState  := 0
 
 
 ; ------------------------ MODULE INCLUDES ------------------------
 #Include .\includes\core_storage.ahk
+#Include .\includes\core_usage_stats.ahk
 #Include .\includes\script_runner.ahk
 #Include .\includes\runtime_hotkeys.ahk
 #Include .\includes\ui_settings.ahk
+#Include .\includes\ui_hotwheel.ahk
+#Include .\includes\ui_hotwheel_geometry.ahk
+#Include .\includes\ui_hotwheel_state.ahk
+#Include .\includes\ui_hotwheel_render.ahk
 #Include .\includes\startup.ahk
 #Include .\includes\core_snippets_backup.ahk
 #Include .\includes\runtime_context_menu.ahk
@@ -79,6 +88,7 @@ OnMessage(0x0201, Editor_OnLButtonDown) ; WM_LBUTTONDOWN
 OnMessage(0x0202, Editor_OnLButtonUp)   ; WM_LBUTTONUP
 OnMessage(0x007B, Editor_OnContextMenu) ; WM_CONTEXTMENU
 OnMessage(0x0100, Editor_OnKeyDown)     ; WM_KEYDOWN
+OnMessage(0x0006, HotwheelRenderOnActivate) ; WM_ACTIVATE
 SetTimer(UpdatePointerContext, 100)
 
 InitOnStartup()

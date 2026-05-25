@@ -2,6 +2,8 @@
 
 This file is optimized for LLM handoff. Keep entries explicit, stable, and easy to update.
 
+Update this tracker after each completed phase or meaningful task. Notes can be brief and pragmatic; future contributors may choose what details are worth preserving.
+
 ## Status Legend
 
 - `todo`: not started
@@ -14,7 +16,7 @@ This file is optimized for LLM handoff. Keep entries explicit, stable, and easy 
 
 ```yaml
 objective_id: hotwheel_backend_scaffold
-status: todo
+status: active
 priority: high
 summary: Build backend scaffolding for a future polished hotwheel selector without coupling UI rendering to business logic.
 primary_design_doc: docs/HOTWHEEL_DESIGN.md
@@ -85,7 +87,7 @@ phases:
       - Design includes invocation, usage scoring, geometry, rendering boundaries, and cancellation rules.
 
   - id: phase_1_usage_stats_backend
-    status: todo
+    status: done
     goal: Add usage tracking independent of hotwheel rendering.
     proposed_files:
       - includes/core_usage_stats.ahk
@@ -104,9 +106,16 @@ phases:
       - Existing paste behavior unchanged.
       - Usage file created only after successful paste.
       - Smoke check passes.
+    notes:
+      - Implemented usage.ini under DataRootDir with base64-encoded category/title fields.
+      - Successful paste is defined as PasteSnippet reaching a successful FocusPasteTarget call.
+      - Public APIs blank out orphaned recent entries by checking currently loaded snippets.
+      - Last-used and most-used APIs avoid showing the same category/title in both center slots.
+      - Usage cache is keyed by usage file path so storage-root changes reload from the active DataRootDir.
+      - Verified with tools/smoke_check.bat and a temporary AHK usage-stats harness.
 
   - id: phase_2_hotkey_tap_hold_backend
-    status: todo
+    status: done
     goal: Split configured hotkey into tap=root menu and hold=hotwheel placeholder.
     proposed_files:
       - includes/runtime_hotkeys.ahk
@@ -125,9 +134,15 @@ phases:
       - Hold calls placeholder without breaking hotkey registration.
       - Threshold persists.
       - Smoke check passes.
+    notes:
+      - Configured hotkey now dispatches through tap/hold detection using the physical trigger key stripped from the configured hotkey string.
+      - Hold threshold persists as general.hotwheel_hold_threshold_ms with a clamped 100-500 ms range and 200 ms default.
+      - Settings exposes the threshold inside the Hotkey group.
+      - ShowHotwheel exists as a placeholder lifecycle entry point in includes/ui_hotwheel.ahk.
+      - Verified with tools/smoke_check.bat; manual tap/hold hardware feel still needs checking.
 
   - id: phase_3_geometry_backend
-    status: todo
+    status: done
     goal: Compute hotwheel geometry independent of drawing.
     proposed_files:
       - includes/ui_hotwheel_geometry.ahk
@@ -145,9 +160,15 @@ phases:
       - Geometry functions can be exercised without opening a GUI.
       - Hit-test returns stable target descriptors.
       - Smoke check passes.
+    notes:
+      - Implemented DPI-scaled default geometry config, cardinal fan direction selection, and bounds.
+      - Category slices preserve file/editor order and hide empty categories.
+      - Hovered category can balloon to 60 percent of the fan; entry slices preserve entry order when entryOrderByCategory is supplied.
+      - Hit testing returns center, category, entry, more, or empty descriptors without invoking paste/rendering code.
+      - Verified with tools/smoke_check.bat and a temporary AHK geometry harness.
 
   - id: phase_4_hotwheel_state_backend
-    status: todo
+    status: done
     goal: Define hotwheel state and view model consumed by renderer.
     proposed_files:
       - includes/ui_hotwheel_state.ahk
@@ -165,9 +186,15 @@ phases:
       - Renderer can consume view model without reading snippets/settings directly.
       - Click dispatch can be tested from target descriptors.
       - Smoke check passes.
+    notes:
+      - Implemented state creation, hover updates, view-model generation, close reasons, target descriptors, and left-click outcome mapping.
+      - Center actions use usage stats and title-only labels; orphaned/empty recent actions become disabled blank slots.
+      - Category/entry/more/center hit targets are mapped to renderer-independent action descriptors.
+      - Left-click resolution returns paste/settings/root-menu/none outcomes without executing paste or opening UI.
+      - Verified with tools/smoke_check.bat and a temporary AHK state harness.
 
   - id: phase_5_plain_renderer_prototype
-    status: todo
+    status: done
     goal: Draw a basic but replaceable hotwheel UI.
     proposed_files:
       - includes/ui_hotwheel_render.ahk
@@ -187,9 +214,16 @@ phases:
       - Visual style can be changed without touching usage/geometry/input logic.
       - Opens and closes reliably.
       - Smoke check passes.
+    notes:
+      - Implemented a plain always-on-top borderless GUI renderer in includes/ui_hotwheel_render.ahk.
+      - Renderer consumes only the prepared view model plus geometry objects; it does not load snippets, score usage, or execute actions.
+      - ShowHotwheel now performs text-context validation, snippet load, paste-target capture, state creation, and renderer open.
+      - Renderer supports center actions, category labels, hovered-category highlighting, and entry labels when the state supplies entry slices.
+      - Live hover/click lifecycle is still phase_6_input_and_action_lifecycle.
+      - Verified with tools/smoke_check.bat and a temporary AHK renderer harness.
 
   - id: phase_6_input_and_action_lifecycle
-    status: todo
+    status: done
     goal: Wire mouse/keyboard interactions to state and paste actions.
     proposed_files:
       - includes/ui_hotwheel.ahk
@@ -212,6 +246,18 @@ phases:
       - Hotwheel closes by required actions.
       - Usage stats update only on success.
       - Smoke check passes.
+    notes:
+      - Added hover timer, left/right mouse hotkeys, Escape handling, unrelated-key cancellation, and focus-lost close handling.
+      - Hover updates rebuild state/view model and refresh the plain renderer so category highlighting and entry expansion are visible.
+      - Left-click outcomes dispatch outside the renderer: paste reuses PasteSnippet, settings opens Settings, More falls back to the root menu.
+      - Right-click, Escape, unrelated key input, focus loss, and empty clicks close without pasting.
+      - Renderer refresh is guarded against timer reentrancy so redraw cannot destroy controls while labels are being created.
+      - Plain renderer now uses a compact bounded panel with visual hit-target rectangles, avoiding the earlier full fan bounding-box flash on high-DPI ultrawide displays.
+      - Focus-loss auto-close is disabled in the prototype, and startup keyboard handling ignores trigger/modifier keys so the held hotkey does not immediately cancel the hotwheel.
+      - Verified with tools/smoke_check.bat and a temporary AHK lifecycle harness.
+      - Manual external-target paste verification is still recommended before visual polish.
+      - Known issue as of 2026-05-25: on real use, holding the hotkey briefly flashes stacked white rectangles/text for one or a few frames and then the hotwheel disappears. The normal quick-tap root menu still opens and normal app usage remains intact.
+      - Do not continue visual polish until the hotwheel disappearance is diagnosed. Recommended next debug step: instrument/log close reason and input path firing immediately after ShowHotwheel.
 
   - id: phase_7_visual_polish
     status: todo
@@ -244,14 +290,14 @@ phases:
 
 ```yaml
 next_action:
-  id: phase_1_usage_stats_backend
-  reason: Usage stats are independent, low-risk, and needed by the hotwheel center actions.
+  id: diagnose_hotwheel_immediate_close
+  reason: Hotwheel backend scaffolding is committed, but real hold invocation currently flashes briefly and closes; diagnose lifecycle/input close path before phase_7_visual_polish.
   first_files_to_read:
     - PasteMenu.ahk
-    - includes/paste_markup.ahk
-    - includes/ui_editor.ahk
-    - includes/runtime_context_menu.ahk
-    - includes/core_storage.ahk
+    - includes/ui_hotwheel.ahk
+    - includes/ui_hotwheel_render.ahk
+    - includes/ui_hotwheel_geometry.ahk
+    - includes/ui_hotwheel_state.ahk
   first_files_to_create:
-    - includes/core_usage_stats.ahk
+    - none
 ```
