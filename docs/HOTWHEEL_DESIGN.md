@@ -269,6 +269,20 @@ Likely approach:
   - radius selects ring/zone
 - Keep the existing menu path untouched until hotwheel behavior is proven.
 
+## Implementation Reality (v1)
+
+The v1 implementation diverges from the fan/GDI+ design in several ways. These are deliberate pragmatic choices, not defects, but they should be understood before reading the design sections above.
+
+**Renderer**: v1 uses a rectangular, always-on-top panel of `AddText` controls, not a GDI+ fan. The panel shows center actions across the top, category buttons in a two-column grid, and entry rows below.
+
+**Hit testing**: v1 uses axis-aligned rectangle hit targets, not polar coordinate hit testing. The polar layout is computed in `ui_hotwheel_geometry.ahk` but the renderer ignores it and builds its own `visualTargets` list.
+
+**Ballooning**: category ballooning in v1 means showing entry rows below all category buttons when a category is hovered. The neighboring-slice-shift behavior described in the Outer Fan section is not implemented.
+
+**Fan geometry**: the fan direction, center zone, and outer radius sizing described in Placement and Sizing are computed but not visually rendered.
+
+**Known issue (2026-05-25)**: on real hold invocation the hotwheel flashes briefly and disappears. This is a lifecycle bug (see phase_6_5_lifecycle_hardening in PROJECT_PROGRESS.md), not a visual issue. Do not proceed to visual polish until this is resolved.
+
 ## Cancellation Rules
 
 - Releasing the held hotkey leaves the hotwheel open.
@@ -301,24 +315,26 @@ Data needed:
 
 ## Validation Checklist
 
-- Quick tap opens the root menu.
-- Hold opens the hotwheel.
-- Tap/hold threshold is configurable.
-- Release detection works on the actual trigger mouse.
-- Releasing the hotkey does not close the hotwheel.
-- Hotwheel opens near cursor without covering it awkwardly.
-- Hotwheel renders correctly at 100%, 150%, and 200% display scaling.
-- Fan direction is sensible near screen edges.
-- Hover highlight tracks the correct slice.
-- Left-click on last-used paste works.
-- Left-click on most-used paste works.
-- Last-used and most-used do not show the same entry in both hub slots.
-- Usage ranking decays and can be overtaken.
-- Settings hub action opens Settings.
-- Category hover expands entries.
-- Entry click pastes into the original target.
-- Stats update only after successful paste.
-- Escape cancels.
-- Unrelated key input cancels.
-- Right-click closes without pasting.
-- Normal root menu behavior is unchanged.
+Items marked `[v1]` are in scope for the current rectangular-panel implementation. Items marked `[fan]` require the GDI+ fan renderer and are deferred until that rendering path is chosen (see phase_6_7_rendering_decision).
+
+- `[v1]` Quick tap opens the root menu.
+- `[v1]` Hold opens the hotwheel.
+- `[v1]` Tap/hold threshold is configurable.
+- `[v1]` Release detection works on the actual trigger mouse.
+- `[v1]` Releasing the hotkey does not close the hotwheel.
+- `[v1]` Hotwheel opens near cursor without covering it awkwardly.
+- `[v1]` Hotwheel renders correctly at 100%, 150%, and 200% display scaling.
+- `[fan]` Fan direction is sensible near screen edges.
+- `[v1]` Hover highlight tracks the correct slice.
+- `[v1]` Left-click on last-used paste works.
+- `[v1]` Left-click on most-used paste works.
+- `[v1]` Last-used and most-used do not show the same entry in both hub slots.
+- `[v1]` Usage ranking decays and can be overtaken.
+- `[v1]` Settings hub action opens Settings.
+- `[v1]` Category hover expands entries.
+- `[v1]` Entry click pastes into the original target.
+- `[v1]` Stats update only after successful paste.
+- `[v1]` Escape cancels.
+- `[v1]` Unrelated key input cancels.
+- `[v1]` Right-click closes without pasting.
+- `[v1]` Normal root menu behavior is unchanged.

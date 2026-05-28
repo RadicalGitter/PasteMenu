@@ -259,6 +259,7 @@ LoadSettings() {
     HotwheelHoldThresholdMs := NormalizeHotwheelHoldThresholdMs(holdRaw)
 
     ScriptRunnerLoadFromSettings()
+    LLMCallsLoadFromSettings()
 }
 
 ; Saves or serializes save settings.
@@ -274,6 +275,7 @@ SaveSettings() {
     IniWrite(NormalizeHotwheelHoldThresholdMs(HotwheelHoldThresholdMs), SettingsFile, "general", "hotwheel_hold_threshold_ms")
     IniWrite(CheckBetaReleases ? "1" : "0", SettingsFile, "updates", "check_beta")
     ScriptRunnerSaveToSettings()
+    LLMCallsSaveToSettings()
     SaveStorageMode()
 }
 
@@ -324,6 +326,39 @@ T(key) {
             case "menu_move_to": return "Flytta till"
             case "menu_delete_category": return "Radera kategori..."
             case "menu_settings": return "Inställningar"
+            case "llm_calls": return "LLM Calls"
+            case "llm_custom": return "Custom..."
+            case "llm_edit_calls": return "Edit LLM Calls"
+            case "llm_settings": return "LLM-inställningar"
+            case "llm_send": return "Skicka"
+            case "llm_show_contents": return "Visa innehåll"
+            case "llm_hide_contents": return "Dölj innehåll"
+            case "llm_dont_ask_hour": return "Fråga inte igen på 1 timme"
+            case "llm_save_to_log": return "Spara till logg"
+            case "llm_copy_response": return "Kopiera"
+            case "llm_paste_response": return "Klistra in"
+            case "llm_waiting": return "Väntar på Anthropic..."
+            case "llm_no_selection": return "Ingen markerad text hittades."
+            case "llm_api_key_missing": return "API-nyckel saknas. Öppna LLM-inställningar och fyll i apikey.ini."
+            case "llm_sensitive_selection_blocked": return "LLM-anropet stoppades eftersom den markerade texten verkar innehålla API-nyckeldata."
+            case "llm_prompt_editor_title": return "LLM Calls Editor"
+            case "llm_response_title": return "LLM Response"
+            case "llm_settings_title": return "LLM Settings"
+            case "llm_provider": return "Provider"
+            case "llm_model": return "Model"
+            case "llm_max_tokens": return "Max tokens"
+            case "llm_timeout_seconds": return "Timeout (s)"
+            case "llm_example_preface": return "Exempel-preface"
+            case "llm_open_api_key": return "Öppna/skapa apikey.ini"
+            case "llm_save_new_entry": return "Spara som ny entry"
+            case "llm_starting_point": return "Starting point"
+            case "llm_system_prompt": return "System prompt"
+            case "llm_selected_text": return "Markerad text"
+            case "llm_entry_saved": return "LLM entry sparad."
+            case "llm_log_saved": return "Svar sparat i loggen."
+            case "llm_log_failed": return "Kunde inte spara till loggen."
+            case "llm_response_copied": return "Svar kopierat."
+            case "llm_response_pasted": return "Svar inklistrat."
             case "menu_new_category": return "Ny kategori"
             case "menu_show_storage": return "Visa filer"
             case "menu_validate_fix_now": return "Validera/Fixa nu..."
@@ -396,6 +431,7 @@ T(key) {
             case "settings_hotkey": return "Snabbtangent"
             case "settings_hotwheel_hold_ms": return "Hålltröskel (ms)"
             case "editor_move": return "Flytta"
+            case "editor_include_llm_example": return "Include as LLM example"
             case "msg_move_no_target_category": return "Ingen annan kategori finns att flytta till."
             case "msg_move_target_prompt": return "Flytta posten till kategori:"
             case "editor_show_selected_near_click": return "Visa post nära klick i huvudmenyn"
@@ -495,6 +531,39 @@ T(key) {
         case "menu_move_to": return "Move to"
         case "menu_delete_category": return "Delete category..."
         case "menu_settings": return "Settings"
+        case "llm_calls": return "LLM Calls"
+        case "llm_custom": return "Custom..."
+        case "llm_edit_calls": return "Edit LLM Calls"
+        case "llm_settings": return "LLM Settings"
+        case "llm_send": return "Send"
+        case "llm_show_contents": return "Show contents"
+        case "llm_hide_contents": return "Hide contents"
+        case "llm_dont_ask_hour": return "Don't ask again for 1 hour"
+        case "llm_save_to_log": return "Save to log"
+        case "llm_copy_response": return "Copy"
+        case "llm_paste_response": return "Paste"
+        case "llm_waiting": return "Waiting for Anthropic..."
+        case "llm_no_selection": return "No highlighted text was found."
+        case "llm_api_key_missing": return "API key is missing. Open LLM Settings and fill in apikey.ini."
+        case "llm_sensitive_selection_blocked": return "The LLM call was blocked because the highlighted text appears to contain API key data."
+        case "llm_prompt_editor_title": return "LLM Calls Editor"
+        case "llm_response_title": return "LLM Response"
+        case "llm_settings_title": return "LLM Settings"
+        case "llm_provider": return "Provider"
+        case "llm_model": return "Model"
+        case "llm_max_tokens": return "Max tokens"
+        case "llm_timeout_seconds": return "Timeout (s)"
+        case "llm_example_preface": return "Example preface"
+        case "llm_open_api_key": return "Open/create apikey.ini"
+        case "llm_save_new_entry": return "Save as new entry"
+        case "llm_starting_point": return "Starting point"
+        case "llm_system_prompt": return "System prompt"
+        case "llm_selected_text": return "Highlighted text"
+        case "llm_entry_saved": return "LLM entry saved."
+        case "llm_log_saved": return "Response saved to log."
+        case "llm_log_failed": return "Could not save to log."
+        case "llm_response_copied": return "Response copied."
+        case "llm_response_pasted": return "Response pasted."
         case "menu_new_category": return "New category"
         case "menu_show_storage": return "Show files"
         case "menu_validate_fix_now": return "Validate/Fix now..."
@@ -567,6 +636,7 @@ T(key) {
         case "settings_hotkey": return "Hotkey"
         case "settings_hotwheel_hold_ms": return "Hold threshold (ms)"
         case "editor_move": return "Move"
+        case "editor_include_llm_example": return "Include as LLM example"
         case "msg_move_no_target_category": return "No other category is available to move to."
         case "msg_move_target_prompt": return "Move entry to category:"
         case "editor_show_selected_near_click": return "Show entry near click in root menu"
@@ -710,10 +780,14 @@ StorageModeFromChoiceIndex(idx) {
 ; Sets or applies apply storage selection.
 ApplyStorageSelection() {
     global StorageMode, DataRootDir, SnippetFile, SettingsFile, UsageStatsFile
+    global LLMPromptFile, LLMResponseLogFile, LLMExampleFile
     DataRootDir := ResolveDataRootDir(StorageMode)
     SnippetFile := DataRootDir "\pastemenu.txt"
     SettingsFile := DataRootDir "\settings.ini"
     UsageStatsFile := DataRootDir "\usage.ini"
+    LLMPromptFile := DataRootDir "\llm_prompts.txt"
+    LLMResponseLogFile := DataRootDir "\logs\LLMresponselog.md" ; Resolved to local root\llmlogs when saving.
+    LLMExampleFile := DataRootDir "\llm_examples.tsv"
 }
 
 ; Handles resolve storage root strict.

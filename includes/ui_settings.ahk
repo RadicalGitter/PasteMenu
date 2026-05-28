@@ -415,6 +415,7 @@ SettingsWindowMigrateStorage(state, *) {
     StorageMode := chosenMode
     ApplyStorageSelection()
     EnsureSnippetFile(targetSnippet)
+    LLMCallsEnsurePromptFile()
     SaveSettings()
     state.dataRootDir := DataRootDir
     state.providerText.Text := T("msg_storage_provider") ": " GetProviderDisplayName()

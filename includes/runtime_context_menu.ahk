@@ -229,9 +229,12 @@ StartMenuOutsideClickWatcher() {
     global _MenuAutoCloseState
     _MenuAutoCloseState := {
         rDown: GetKeyState("RButton", "P"),
-        mDown: GetKeyState("MButton", "P")
+        mDown: GetKeyState("MButton", "P"),
+        mouseHotkeys: Map(),
+        keyHook: 0
     }
-    try Hotkey("~*LButton", MenuOutsideLeftClickHotkey, "On")
+    MenuRegisterOutsideMouseHotkeys()
+    MenuStartKeyboardCloseHook()
     SetTimer(MenuOutsideClickWatcherTick, 25)
 }
 
@@ -239,12 +242,62 @@ StartMenuOutsideClickWatcher() {
 StopMenuOutsideClickWatcher() {
     global _MenuAutoCloseState
     SetTimer(MenuOutsideClickWatcherTick, 0)
-    try Hotkey("~*LButton", MenuOutsideLeftClickHotkey, "Off")
+    MenuUnregisterOutsideMouseHotkeys()
+    if IsObject(_MenuAutoCloseState) && IsObject(_MenuAutoCloseState.keyHook) {
+        try _MenuAutoCloseState.keyHook.Stop()
+        _MenuAutoCloseState.keyHook := 0
+    }
     _MenuAutoCloseState := 0
 }
 
-; Handles menu outside left click hotkey.
-MenuOutsideLeftClickHotkey(*) {
+; Registers mouse buttons that should close an open menu when clicked outside it.
+MenuRegisterOutsideMouseHotkeys() {
+    global _MenuAutoCloseState
+    if !IsObject(_MenuAutoCloseState)
+        return
+
+    hooks := Map()
+    mouseKeys := ["LButton", "RButton", "MButton", "XButton1", "XButton2", "WheelUp", "WheelDown"]
+    for _, keyName in mouseKeys {
+        hkName := "~*" keyName
+        fn := MenuOutsideMouseClickHotkey.Bind(keyName)
+        try {
+            Hotkey(hkName, fn, "On")
+            hooks[hkName] := fn
+        }
+    }
+    _MenuAutoCloseState.mouseHotkeys := hooks
+}
+
+; Removes temporary menu mouse close hotkeys.
+MenuUnregisterOutsideMouseHotkeys() {
+    global _MenuAutoCloseState
+    if !IsObject(_MenuAutoCloseState)
+        return
+    if !IsObject(_MenuAutoCloseState.mouseHotkeys)
+        return
+
+    for hkName, _ in _MenuAutoCloseState.mouseHotkeys {
+        try Hotkey(hkName, "Off")
+    }
+    _MenuAutoCloseState.mouseHotkeys := Map()
+}
+
+; Starts a temporary keyboard hook that closes menus on non-modifier keys.
+MenuStartKeyboardCloseHook() {
+    global _MenuAutoCloseState
+    if !IsObject(_MenuAutoCloseState)
+        return
+
+    ih := InputHook("V")
+    ih.KeyOpt("{All}", "N")
+    ih.OnKeyDown := MenuOutsideKeyDown
+    _MenuAutoCloseState.keyHook := ih
+    try ih.Start()
+}
+
+; Handles menu outside mouse click hotkey.
+MenuOutsideMouseClickHotkey(keyName, *) {
     if !WinExist("ahk_class #32768")
         return
 
@@ -253,6 +306,25 @@ MenuOutsideLeftClickHotkey(*) {
         return
 
     DllCall("EndMenu")
+}
+
+; Handles keyboard input while a native menu is open.
+MenuOutsideKeyDown(ih, vk, sc) {
+    if !WinExist("ahk_class #32768")
+        return
+
+    keyName := GetKeyName(Format("vk{:x}sc{:x}", vk, sc))
+    if IsMenuCloseIgnoredKey(keyName)
+        return
+
+    DllCall("EndMenu")
+}
+
+; Returns true for modifiers that should not close the menu by themselves.
+IsMenuCloseIgnoredKey(keyName) {
+    if IsModifierKeyName(keyName)
+        return true
+    return (keyName = "LWin" || keyName = "RWin")
 }
 
 ; Handles menu outside click watcher tick.
@@ -388,54 +460,131 @@ GetRootShortcutEntries() {
     return entries
 }
 
-; Adds root shortcut entries (pinned + last selected), with separator handling.
-AddRootShortcutSection(mainMenu, nearTop, shortcutEntries) {
+; Adds root shortcut entries (pinned + last selected).
+AddRootShortcutSection(mainMenu, shortcutEntries) {
     if !IsObject(shortcutEntries) || (shortcutEntries.Length = 0)
         return false
 
-    if nearTop {
-        for _, item in shortcutEntries
-            mainMenu.Add(item.label, PasteSnippet.Bind(item.category, item.title))
-        mainMenu.Add()
-    } else {
-        mainMenu.Add()
-        for _, item in shortcutEntries
-            mainMenu.Add(item.label, PasteSnippet.Bind(item.category, item.title))
-    }
+    for _, item in shortcutEntries
+        mainMenu.Add(item.label, PasteSnippet.Bind(item.category, item.title))
     return true
 }
 
-; Handles add far root actions section.
-AddFarRootActionsSection(mainMenu, openUpward, scriptActionMode := "run") {
+; Adds secondary root actions such as script tools and editors.
+AddRootSecondaryActionsSection(mainMenu, scriptActionMode := "run") {
     scriptLabel := (scriptActionMode = "paste") ? T("menu_paste_script_text") : T("menu_run_script")
 
-    primaryActions := [
-        [T("menu_close"), RootCloseMenuAction],
-        [T("menu_open_settings"), OpenSettingsWindow]
-    ]
     secondaryActions := []
     if (scriptActionMode != "paste" || ScriptRunnerIsEnabled())
         secondaryActions.Push([scriptLabel, ScriptRunnerBuildMenu(scriptActionMode, true)])
     secondaryActions.Push([T("menu_new_category"), RootNewCategoryMenuAction])
     secondaryActions.Push([T("menu_entry_editor"), RootEntryEditorMenuAction])
+    AddRootActionItems(mainMenu, secondaryActions)
+    return true
+}
 
-    if openUpward {
-        AddRootActionItems(mainMenu, primaryActions)
-        mainMenu.Add()
-        AddRootActionItems(mainMenu, secondaryActions)
-        mainMenu.Add()
-    } else {
-        mainMenu.Add()
-        AddRootActionItems(mainMenu, secondaryActions)
-        mainMenu.Add()
-        AddRootActionItems(mainMenu, primaryActions)
-    }
+; Adds primary root actions.
+AddRootPrimaryActionsSection(mainMenu) {
+    primaryActions := [
+        [T("menu_close"), RootCloseMenuAction],
+        [T("menu_open_settings"), OpenSettingsWindow]
+    ]
+    AddRootActionItems(mainMenu, primaryActions)
+    return true
 }
 
 ; Adds a list of `[label, handler]` action tuples to a menu.
 AddRootActionItems(menuObj, actions) {
     for _, item in actions
         menuObj.Add(item[1], item[2])
+}
+
+; Adds root menu sections with separators only between visible sections.
+AddRootMenuSections(mainMenu, openUpward, shortcutEntries, scriptActionMode := "paste") {
+    sections := ["shortcuts", "categories", "llm", "secondary_actions", "primary_actions"]
+    if openUpward
+        sections := ReverseArray(sections)
+
+    hasAnySection := false
+    for _, sectionName in sections {
+        if !IsRootMenuSectionVisible(sectionName, shortcutEntries, scriptActionMode)
+            continue
+
+        if hasAnySection
+            mainMenu.Add()
+        AddRootMenuNamedSection(mainMenu, sectionName, shortcutEntries, scriptActionMode)
+        hasAnySection := true
+    }
+}
+
+; Returns whether a root menu section should be rendered.
+IsRootMenuSectionVisible(sectionName, shortcutEntries, scriptActionMode := "paste") {
+    switch sectionName {
+        case "shortcuts":
+            return IsObject(shortcutEntries) && shortcutEntries.Length > 0
+        default:
+            return true
+    }
+}
+
+; Adds one named root menu section.
+AddRootMenuNamedSection(mainMenu, sectionName, shortcutEntries, scriptActionMode := "paste") {
+    switch sectionName {
+        case "shortcuts":
+            AddRootShortcutSection(mainMenu, shortcutEntries)
+        case "categories":
+            AddRootCategorySections(mainMenu)
+        case "llm":
+            AddLLMCallsRootSection(mainMenu)
+        case "secondary_actions":
+            AddRootSecondaryActionsSection(mainMenu, scriptActionMode)
+        case "primary_actions":
+            AddRootPrimaryActionsSection(mainMenu)
+    }
+}
+
+; Returns a reversed shallow copy of an array.
+ReverseArray(arr) {
+    out := []
+    idx := arr.Length
+    while (idx >= 1) {
+        out.Push(arr[idx])
+        idx -= 1
+    }
+    return out
+}
+
+; Adds all normal paste categories as one root menu section.
+AddRootCategorySections(mainMenu) {
+    global _Categories, _EntryOrderByCategory
+
+    for _, category in _Categories
+        mainMenu.Add(category, BuildPasteCategorySubmenu(category))
+}
+
+; Builds the submenu for a normal paste category.
+BuildPasteCategorySubmenu(category) {
+    global _EntryOrderByCategory
+
+    sub := Menu()
+    order := _EntryOrderByCategory[category]
+
+    if (order.Length = 0) {
+        sub.Add(T("menu_empty_category"), NoOp)
+    } else {
+        for _, title in order
+            sub.Add(title, PasteSnippet.Bind(category, title))
+    }
+
+    sub.Add()
+    sub.Add(T("menu_quick_new_entry"), QuickNewEntryMenuAction.Bind(category))
+
+    editSub := Menu()
+    editSub.Add(T("menu_new_entry"), NewEntryMenuAction.Bind(category))
+    editSub.Add(T("menu_rename"), RenameCategoryMenuAction.Bind(category))
+    editSub.Add(T("menu_delete_category"), DeleteCategoryMenuAction.Bind(category))
+    sub.Add(T("menu_edit_category"), editSub)
+    return sub
 }
 
 ; Returns or computes get work area for point.
@@ -454,27 +603,113 @@ GetWorkAreaForPoint(x, y, &left, &top, &right, &bottom) {
     bottom := A_ScreenHeight
 }
 
-; Handles estimate root menu height.
-EstimateRootMenuHeight(categoryCount, shortcutCount := 0) {
-    scriptRows := ScriptRunnerIsEnabled() ? 1 : 0
-    rowCount := categoryCount + 6 + scriptRows ; Root actions + separators.
-    if (shortcutCount > 0)
-        rowCount += shortcutCount + 1 ; Shortcut rows + separator.
-    return (rowCount * 24) + 14
+; Builds menu layout counts used by placement heuristics.
+BuildRootMenuLayoutMetrics(categoryCount, shortcutCount := 0, scriptActionMode := "paste") {
+    return {
+        categoryCount: categoryCount,
+        shortcutCount: shortcutCount,
+        scriptRows: EstimateRootScriptRows(scriptActionMode),
+        actionRows: EstimateRootActionRows(scriptActionMode),
+        llmRows: 1,
+        baseSeparators: 3,
+        shortcutSeparators: shortcutCount > 0 ? 1 : 0
+    }
 }
 
-; Handles menu likely opens upward.
-MenuLikelyOpensUpward(mouseX, mouseY, categoryCount, shortcutCount := 0) {
-    GetWorkAreaForPoint(mouseX, mouseY, &waLeft, &waTop, &waRight, &waBottom)
-    neededHeight := EstimateRootMenuHeight(categoryCount, shortcutCount)
-    spaceBelow := waBottom - mouseY
-    spaceAbove := mouseY - waTop
+; Counts script-runner root rows in the current menu mode.
+EstimateRootScriptRows(scriptActionMode := "paste") {
+    return (scriptActionMode != "paste" || ScriptRunnerIsEnabled()) ? 1 : 0
+}
 
-    if (spaceBelow >= neededHeight)
+; Counts non-category action rows added by root action sections.
+EstimateRootActionRows(scriptActionMode := "paste") {
+    ; Close, settings, new category, and entry editor are always present.
+    return 4 + EstimateRootScriptRows(scriptActionMode)
+}
+
+; Estimates root menu rows from explicit layout metrics.
+EstimateRootMenuRows(metrics) {
+    rows := metrics.categoryCount
+    rows += metrics.shortcutCount
+    rows += metrics.actionRows
+    rows += metrics.llmRows
+    rows += metrics.baseSeparators
+    rows += metrics.shortcutSeparators
+    return rows
+}
+
+; Estimates native root menu height in pixels.
+EstimateRootMenuHeight(metrics) {
+    rowHeight := GetEstimatedMenuRowHeight()
+    borderPadding := GetEstimatedMenuVerticalPadding()
+    return (EstimateRootMenuRows(metrics) * rowHeight) + borderPadding
+}
+
+; Returns the estimated native menu row height for the active DPI.
+GetEstimatedMenuRowHeight() {
+    h := DllCall("GetSystemMetrics", "Int", 15, "Int") ; SM_CYMENU
+    if (h < 18 || h > 60)
+        h := 24
+    return h
+}
+
+; Returns a conservative vertical padding estimate for native popup menus.
+GetEstimatedMenuVerticalPadding() {
+    edge := DllCall("GetSystemMetrics", "Int", 46, "Int") ; SM_CYEDGE
+    if (edge < 1 || edge > 8)
+        edge := 2
+    return (edge * 2) + 10
+}
+
+; Returns minimum gap to keep between estimated menu bounds and work-area edges.
+GetMenuEdgePaddingPx() {
+    return 12
+}
+
+; Returns how much better the upward fit must be before flipping direction.
+GetMenuDirectionHysteresisPx() {
+    return Max(GetEstimatedMenuRowHeight(), 24)
+}
+
+; Builds all placement facts for a menu opened at a screen point.
+GetRootMenuPlacementInfo(mouseX, mouseY, metrics) {
+    GetWorkAreaForPoint(mouseX, mouseY, &waLeft, &waTop, &waRight, &waBottom)
+    padding := GetMenuEdgePaddingPx()
+    neededHeight := EstimateRootMenuHeight(metrics)
+    spaceBelow := Max(0, waBottom - padding - mouseY)
+    spaceAbove := Max(0, mouseY - (waTop + padding))
+
+    return {
+        workLeft: waLeft,
+        workTop: waTop,
+        workRight: waRight,
+        workBottom: waBottom,
+        neededHeight: neededHeight,
+        spaceBelow: spaceBelow,
+        spaceAbove: spaceAbove,
+        fitsBelow: spaceBelow >= neededHeight,
+        fitsAbove: spaceAbove >= neededHeight
+    }
+}
+
+; Decides whether the root menu should be assembled for upward opening.
+ShouldOpenRootMenuUpward(mouseX, mouseY, metrics) {
+    info := GetRootMenuPlacementInfo(mouseX, mouseY, metrics)
+
+    if info.fitsBelow && !info.fitsAbove
         return false
-    if (spaceAbove >= neededHeight)
+    if info.fitsAbove && !info.fitsBelow
         return true
-    return (spaceAbove > spaceBelow)
+    if info.fitsBelow && info.fitsAbove
+        return false
+
+    return (info.spaceAbove - info.spaceBelow) > GetMenuDirectionHysteresisPx()
+}
+
+; Backward-compatible wrapper for older call sites/tests.
+MenuLikelyOpensUpward(mouseX, mouseY, categoryCount, shortcutCount := 0) {
+    metrics := BuildRootMenuLayoutMetrics(categoryCount, shortcutCount, "paste")
+    return ShouldOpenRootMenuUpward(mouseX, mouseY, metrics)
 }
 
 ; Opens or shows show snippet menu.
@@ -514,40 +749,11 @@ ShowSnippetMenu(*) {
     ScriptRunnerSetInvocationFolder("")
     _PendingPasteTarget := CapturePasteTargetContext()
     shortcutEntries := GetRootShortcutEntries()
-    openUpward := MenuLikelyOpensUpward(mx, my, _Categories.Length, shortcutEntries.Length)
+    placementMetrics := BuildRootMenuLayoutMetrics(_Categories.Length, shortcutEntries.Length, "paste")
+    openUpward := ShouldOpenRootMenuUpward(mx, my, placementMetrics)
 
     mainMenu := Menu()
-    if openUpward
-        AddFarRootActionsSection(mainMenu, true, "paste")
-    if !openUpward
-        AddRootShortcutSection(mainMenu, true, shortcutEntries)
-
-    for _, category in _Categories {
-        sub := Menu()
-        order := _EntryOrderByCategory[category]
-
-        if (order.Length = 0) {
-            sub.Add(T("menu_empty_category"), NoOp)
-        } else {
-            for _, title in order
-                sub.Add(title, PasteSnippet.Bind(category, title))
-        }
-
-        sub.Add()
-        sub.Add(T("menu_quick_new_entry"), QuickNewEntryMenuAction.Bind(category))
-
-        editSub := Menu()
-        editSub.Add(T("menu_new_entry"), NewEntryMenuAction.Bind(category))
-        editSub.Add(T("menu_rename"), RenameCategoryMenuAction.Bind(category))
-        editSub.Add(T("menu_delete_category"), DeleteCategoryMenuAction.Bind(category))
-        sub.Add(T("menu_edit_category"), editSub)
-        mainMenu.Add(category, sub)
-    }
-
-    if openUpward
-        AddRootShortcutSection(mainMenu, false, shortcutEntries)
-    if !openUpward
-        AddFarRootActionsSection(mainMenu, false, "paste")
+    AddRootMenuSections(mainMenu, openUpward, shortcutEntries, "paste")
 
     StartMenuOutsideClickWatcher()
     try {

@@ -171,6 +171,7 @@ RenameCategoryMenuAction(category, *) {
     _EntryOrderByCategory[newName] := _EntryOrderByCategory[category]
     _EntriesByCategory.Delete(category)
     _EntryOrderByCategory.Delete(category)
+    LLMExampleRenameCategory(category, newName)
 
     if !SaveSnippetsToFile(SnippetFile, SnippetEncoding) {
         MsgBox "Kunde inte spara till fil:`n" SnippetFile
@@ -209,6 +210,7 @@ DeleteCategoryMenuAction(category, *) {
 
     _EntriesByCategory.Delete(category)
     _EntryOrderByCategory.Delete(category)
+    LLMExampleRemoveCategory(category)
 
     if (_Categories.Length = 0) {
         _Categories.Push(DefaultCategory)
@@ -248,16 +250,19 @@ OpenCategoryEditor(category, selectTitle := "", startNew := false) {
     editorGui.SetFont("s10", "Segoe UI")
 
     editorGui.AddGroupBox("x10 y8 w220 h540", "Categories")
-    categoryList := editorGui.AddListBox("x22 y30 w196 h380", _Categories)
+    categoryList := editorGui.AddListBox("x22 y30 w196 h380 +0x50", _Categories)
+    EditorSetStyledListRowHeight(categoryList)
     btnCatRename := editorGui.AddButton("x22 y418 w95 h30", "Rename")
     btnCatDelete := editorGui.AddButton("x123 y418 w95 h30", "Delete")
     btnCatNew := editorGui.AddButton("x22 y454 w196 h30", T("menu_new_category"))
     editorGui.AddText("x22 y488 w196 h54", "Tip: Drag an entry onto a category to move it, or use Move in Entry Editor.")
 
     editorGui.AddGroupBox("x240 y8 w250 h540", "Entries")
-    entryList := editorGui.AddListBox("x252 y30 w226 h470", _EntryOrderByCategory[category])
-    chkNearClick := editorGui.AddCheckBox("x252 y506 w226 h28", T("editor_show_selected_near_click"))
+    entryList := editorGui.AddListBox("x252 y30 w226 h440 +0x50", _EntryOrderByCategory[category])
+    EditorSetStyledListRowHeight(entryList)
+    chkNearClick := editorGui.AddCheckBox("x252 y476 w226 h24", T("editor_show_selected_near_click"))
     chkNearClick.Value := ShowSelectedNearClick ? 1 : 0
+    chkLLMExample := editorGui.AddCheckBox("x252 y506 w226 h24", T("editor_include_llm_example"))
 
     editorGui.AddGroupBox("x500 y8 w530 h540", "Entry Editor")
     editorGui.AddText("x514 y30 w500", "Title")
@@ -278,6 +283,7 @@ OpenCategoryEditor(category, selectTitle := "", startNew := false) {
         categoryList: categoryList,
         entryList: entryList,
         chkNearClick: chkNearClick,
+        chkLLMExample: chkLLMExample,
         titleEdit: titleEdit,
         contentEdit: contentEdit,
         currentTitle: "",
@@ -290,6 +296,7 @@ OpenCategoryEditor(category, selectTitle := "", startNew := false) {
     entryList.OnEvent("Change", EditorSelectEntry.Bind(state))
     entryList.OnEvent("DoubleClick", EditorBeginInlineRename.Bind(state))
     chkNearClick.OnEvent("Click", EditorToggleNearClickEntry.Bind(state))
+    chkLLMExample.OnEvent("Click", EditorToggleLLMExampleEntry.Bind(state))
     btnCatRename.OnEvent("Click", EditorRenameCategory.Bind(state))
     btnCatDelete.OnEvent("Click", EditorDeleteCategory.Bind(state))
     btnCatNew.OnEvent("Click", EditorNewCategory.Bind(state))
@@ -351,11 +358,13 @@ EditorLoadCategory(state, category, selectTitle := "", startNew := false) {
 
     if startNew {
         EditorNew(state)
+        EditorInvalidateStyledLists(state)
         return true
     }
 
     if (order.Length = 0) {
         EditorNew(state)
+        EditorInvalidateStyledLists(state)
         return true
     }
 
@@ -368,6 +377,7 @@ EditorLoadCategory(state, category, selectTitle := "", startNew := false) {
 
     state.entryList.Choose(idx)
     EditorSelectEntry(state, state.entryList)
+    EditorInvalidateStyledLists(state)
     return true
 }
 
@@ -401,6 +411,134 @@ LB_GetItemRect(lbHwnd, idx, &x, &y, &w, &h) {
 LB_GetItemHeight(lbHwnd) {
     static LB_GETITEMHEIGHT := 0x01A1
     return SendMessage(LB_GETITEMHEIGHT, 0, 0, , "ahk_id " lbHwnd)
+}
+
+; Sets a comfortable row height for owner-drawn editor listboxes.
+EditorSetStyledListRowHeight(ctrl) {
+    static LB_SETITEMHEIGHT := 0x01A0
+    rowHeight := EditorGetStyledListRowHeight()
+    try SendMessage(LB_SETITEMHEIGHT, 0, rowHeight, , "ahk_id " ctrl.Hwnd)
+}
+
+EditorGetStyledListRowHeight() {
+    hdc := DllCall("GetDC", "Ptr", 0, "Ptr")
+    dpiY := hdc ? DllCall("GetDeviceCaps", "Ptr", hdc, "Int", 90, "Int") : 96
+    if hdc
+        DllCall("ReleaseDC", "Ptr", 0, "Ptr", hdc)
+    return Max(22, Round(22 * dpiY / 96))
+}
+
+; Redraws editor lists after LLM-example inclusion changes.
+EditorInvalidateStyledLists(state) {
+    if !IsObject(state)
+        return
+    try DllCall("InvalidateRect", "Ptr", state.entryList.Hwnd, "Ptr", 0, "Int", true)
+    try DllCall("InvalidateRect", "Ptr", state.categoryList.Hwnd, "Ptr", 0, "Int", true)
+}
+
+; Owner-draws editor listbox rows so LLM examples can be shown in bold.
+Editor_OnDrawItem(wParam, lParam, msg, hwnd) {
+    global _EditorState
+
+    if !IsObject(_EditorState)
+        return
+
+    hwndItemOffset := (A_PtrSize = 8) ? 24 : 20
+    hdcOffset := hwndItemOffset + A_PtrSize
+    rectOffset := hdcOffset + A_PtrSize
+
+    itemId := NumGet(lParam, 8, "UInt")
+    if (itemId = 0xFFFFFFFF)
+        return 1
+
+    itemState := NumGet(lParam, 16, "UInt")
+    itemHwnd := NumGet(lParam, hwndItemOffset, "Ptr")
+    if (itemHwnd != _EditorState.entryList.Hwnd && itemHwnd != _EditorState.categoryList.Hwnd)
+        return
+
+    hdc := NumGet(lParam, hdcOffset, "Ptr")
+    left := NumGet(lParam, rectOffset, "Int")
+    top := NumGet(lParam, rectOffset + 4, "Int")
+    right := NumGet(lParam, rectOffset + 8, "Int")
+    bottom := NumGet(lParam, rectOffset + 12, "Int")
+
+    text := LB_GetText(itemHwnd, itemId)
+    isSelected := (itemState & 0x1) != 0 ; ODS_SELECTED
+    isBold := false
+    if (itemHwnd = _EditorState.entryList.Hwnd)
+        isBold := LLMExampleIsIncluded(_EditorState.currentCategory, text)
+    else if (itemHwnd = _EditorState.categoryList.Hwnd)
+        isBold := LLMExampleCategoryHasIncluded(text)
+
+    bgColorIndex := isSelected ? 13 : 5 ; COLOR_HIGHLIGHT : COLOR_WINDOW
+    textColorIndex := isSelected ? 14 : 8 ; COLOR_HIGHLIGHTTEXT : COLOR_WINDOWTEXT
+    brush := DllCall("GetSysColorBrush", "Int", bgColorIndex, "Ptr")
+    rect := Buffer(16, 0)
+    NumPut("Int", left, rect, 0)
+    NumPut("Int", top, rect, 4)
+    NumPut("Int", right, rect, 8)
+    NumPut("Int", bottom, rect, 12)
+    DllCall("FillRect", "Ptr", hdc, "Ptr", rect.Ptr, "Ptr", brush)
+
+    DllCall("SetBkMode", "Ptr", hdc, "Int", 1) ; TRANSPARENT
+    textColor := DllCall("GetSysColor", "Int", textColorIndex, "UInt")
+    DllCall("SetTextColor", "Ptr", hdc, "UInt", textColor)
+
+    font := isBold ? EditorGetBoldListFont() : SendMessage(0x0031, 0, 0, , "ahk_id " itemHwnd) ; WM_GETFONT
+    oldFont := font ? DllCall("SelectObject", "Ptr", hdc, "Ptr", font, "Ptr") : 0
+
+    textRect := Buffer(16, 0)
+    NumPut("Int", left + 4, textRect, 0)
+    NumPut("Int", top + 1, textRect, 4)
+    NumPut("Int", right - 2, textRect, 8)
+    NumPut("Int", bottom, textRect, 12)
+    DllCall("DrawTextW", "Ptr", hdc, "WStr", text, "Int", StrLen(text), "Ptr", textRect.Ptr, "UInt", 0x24) ; SINGLELINE | VCENTER
+
+    if oldFont
+        DllCall("SelectObject", "Ptr", hdc, "Ptr", oldFont)
+    if (itemState & 0x10) ; ODS_FOCUS
+        DllCall("DrawFocusRect", "Ptr", hdc, "Ptr", rect.Ptr)
+    return 1
+}
+
+LB_GetText(lbHwnd, idx0) {
+    static LB_GETTEXTLEN := 0x018A
+    static LB_GETTEXT := 0x0189
+    len := SendMessage(LB_GETTEXTLEN, idx0, 0, , "ahk_id " lbHwnd)
+    if (len < 0)
+        return ""
+    buf := Buffer((len + 1) * 2, 0)
+    SendMessage(LB_GETTEXT, idx0, buf.Ptr, , "ahk_id " lbHwnd)
+    return StrGet(buf, "UTF-16")
+}
+
+EditorGetBoldListFont() {
+    static hFont := 0
+    if hFont
+        return hFont
+
+    hdc := DllCall("GetDC", "Ptr", 0, "Ptr")
+    dpiY := hdc ? DllCall("GetDeviceCaps", "Ptr", hdc, "Int", 90, "Int") : 96
+    if hdc
+        DllCall("ReleaseDC", "Ptr", 0, "Ptr", hdc)
+    fontHeight := -DllCall("MulDiv", "Int", 10, "Int", dpiY, "Int", 72, "Int")
+    hFont := DllCall("CreateFontW"
+        , "Int", fontHeight
+        , "Int", 0
+        , "Int", 0
+        , "Int", 0
+        , "Int", 700
+        , "UInt", 0
+        , "UInt", 0
+        , "UInt", 0
+        , "UInt", 0
+        , "UInt", 0
+        , "UInt", 0
+        , "UInt", 0
+        , "UInt", 0
+        , "WStr", "Segoe UI"
+        , "Ptr")
+    return hFont
 }
 
 ; Handles editor rename category.
@@ -477,6 +615,7 @@ EditorSelectEntry(state, ctrl, *) {
     state.titleEdit.Value := title
     state.contentEdit.Value := _EntriesByCategory[state.currentCategory][title]
     state.chkNearClick.Value := IsEntryPinned(state.currentCategory, title) ? 1 : 0
+    state.chkLLMExample.Value := LLMExampleIsIncluded(state.currentCategory, title) ? 1 : 0
 }
 
 ; Starts inline rename from listbox double-click.
@@ -585,6 +724,8 @@ EndInlineEntryRename(state, commit := false, forceCancel := false) {
     if !FindIndexInArray(order, newTitle)
         order.Push(newTitle)
     entries[newTitle] := beforeContent
+    LLMExampleRenameEntry(category, oldTitle, category, newTitle, false)
+    LLMExamplesSave()
 
     if IsEntryPinned(category, oldTitle)
         SetSelectedMenuEntry(category, newTitle)
@@ -610,7 +751,18 @@ EditorNew(state, *) {
     state.titleEdit.Value := ""
     state.contentEdit.Value := ""
     SetSelectedMenuEntry("", "")
+    state.chkLLMExample.Value := 0
     state.titleEdit.Focus()
+}
+
+; Toggles whether the current paste entry is sent as an LLM example.
+EditorToggleLLMExampleEntry(state, ctrl, *) {
+    if (state.currentTitle = "") {
+        ctrl.Value := 0
+        return
+    }
+    LLMExampleSetIncluded(state.currentCategory, state.currentTitle, ctrl.Value = 1)
+    EditorInvalidateStyledLists(state)
 }
 
 ; Handles editor save.
@@ -702,6 +854,9 @@ EditorSave(state, *) {
         return
     }
 
+    if (oldTitle != "" && (oldTitle != newTitle))
+        LLMExampleRenameEntry(category, oldTitle, category, newTitle, false)
+    LLMExampleSetIncluded(category, newTitle, state.chkLLMExample.Value = 1, true)
     EditorLoadCategory(state, category, newTitle, false)
 }
 
@@ -736,6 +891,7 @@ EditorDelete(state, *) {
     if entries.Has(title)
         entries.Delete(title)
     SetSelectedMenuEntry("", "")
+    LLMExampleRemoveEntry(category, title)
 
     change := MakeEntryChange("delete", category, title, beforeExists, beforeContent, category, title, false, "")
     if !SaveSnippetsToFile(SnippetFile, SnippetEncoding, change, true) {
@@ -1686,6 +1842,7 @@ MoveEntryToCategory(sourceCategory, title, targetCategory) {
 
     if IsEntryPinned(sourceCategory, title)
         SetSelectedMenuEntry(targetCategory, newTitle)
+    LLMExampleRenameEntry(sourceCategory, title, targetCategory, newTitle)
 
     return newTitle
 }

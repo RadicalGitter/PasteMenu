@@ -21,7 +21,7 @@ priority: high
 summary: Build backend scaffolding for a future polished hotwheel selector without coupling UI rendering to business logic.
 primary_design_doc: docs/HOTWHEEL_DESIGN.md
 current_branch: main
-last_updated: 2026-05-22
+last_updated: 2026-05-25
 ```
 
 ## Global Constraints
@@ -66,6 +66,7 @@ decisions:
     all_time_mode: future_option
   geometry:
     hit_testing: polar_angle_radius
+    hit_testing_v1_note: polar layout computed but v1 panel renderer uses rect visual-targets instead of polar hit testing
     dpi_scale: A_ScreenDPI / 96
     center_zone_diameter_px_100pct: 96_to_112
     outer_radius_px_100pct: 260_to_340
@@ -259,9 +260,30 @@ phases:
       - Known issue as of 2026-05-25: on real use, holding the hotkey briefly flashes stacked white rectangles/text for one or a few frames and then the hotwheel disappears. The normal quick-tap root menu still opens and normal app usage remains intact.
       - Do not continue visual polish until the hotwheel disappearance is diagnosed. Recommended next debug step: instrument/log close reason and input path firing immediately after ShowHotwheel.
 
+  - id: phase_6_5_lifecycle_hardening
+    status: todo
+    goal: Fix lifecycle bugs before visual polish — hotwheel currently disappears immediately on real hold invocation.
+    dependencies:
+      - phase_6_input_and_action_lifecycle
+    tasks:
+      - Add close-reason logging to HotwheelRenderClose and all close-path callers to identify disappear path.
+      - Add mouse-ignore grace window (symmetric to ignoreKeyboardUntil) so the hold-release LButton event does not close the hotwheel immediately.
+      - Replace destroy/recreate GUI in HotwheelRenderRefresh with in-place control update to eliminate hover flicker and race conditions.
+    acceptance:
+      - Hotwheel stays open reliably after hold invocation.
+      - No flash or immediate-close on open.
+      - Hover refresh does not flicker.
+      - Smoke check passes.
+
+  - id: phase_6_7_rendering_decision
+    status: done
+    goal: Formally decide whether v1 ships the rectangular panel or a GDI+ fan renderer, and reconcile docs.
+    notes:
+      - Decision: build the GDI+ fan renderer. The panel is not useful — the root menu already covers list-style interaction. The hotwheel's value is the visual fan shape for fast repeated selections; a polished panel does not deliver that.
+
   - id: phase_7_visual_polish
     status: todo
-    goal: Improve appearance after backend behavior is stable.
+    goal: Improve appearance after backend behavior is stable and rendering path is decided.
     dependencies:
       - phase_6_input_and_action_lifecycle
     tasks:
@@ -290,14 +312,23 @@ phases:
 
 ```yaml
 next_action:
-  id: diagnose_hotwheel_immediate_close
-  reason: Hotwheel backend scaffolding is committed, but real hold invocation currently flashes briefly and closes; diagnose lifecycle/input close path before phase_7_visual_polish.
+  id: phase_6_5_lifecycle_hardening
+  reason: >
+    Hotwheel disappears immediately on real hold invocation. Primary suspects:
+    (1) the LButton event from releasing the hold key fires before a mouse-grace
+    window is established, so *LButton hotkey closes the wheel instantly;
+    (2) HotwheelRenderRefresh destroys and recreates the GUI on every hover tick
+    (30 ms), causing flicker and potential race conditions with input hook teardown.
+    Both must be fixed before visual polish is useful.
+  first_debug_steps:
+    - Add close-reason logging to HotwheelRenderClose and all close-path callers
+      (HotwheelInputLeftClick, HotwheelInputRightClick, HotwheelInputEscape,
+      HotwheelInputKeyDown, HotwheelRenderCloseEvent, HotwheelRenderFocusLostClose).
+    - Add ignoreMouseUntil := A_TickCount + 350 in HotwheelInputStart and guard
+      HotwheelInputLeftClick/RightClick against it, mirroring the keyboard grace window.
+    - Replace destroy/recreate in HotwheelRenderRefresh with in-place control updates
+      or a full-redraw that does not tear down the window.
   first_files_to_read:
-    - PasteMenu.ahk
     - includes/ui_hotwheel.ahk
     - includes/ui_hotwheel_render.ahk
-    - includes/ui_hotwheel_geometry.ahk
-    - includes/ui_hotwheel_state.ahk
-  first_files_to_create:
-    - none
 ```

@@ -6,11 +6,15 @@ InitOnStartup() {
     firstRun := !FileExist(SettingsFile)
     LoadSettings()
     ScriptRunnerRefreshCache(true)
+    LLMCallsEnsurePromptFile()
+    LLMExamplesLoad()
 
     MaybeOfferAppDataToDropboxMigration()
 
     ; Migration flow may update StorageMode/SnippetFile.
     ApplyStorageSelection()
+    LLMCallsEnsurePromptFile()
+    LLMExamplesLoad()
 
     if (firstRun) {
         MsgBox T("msg_hotkey_firstrun_prompt"), T("msg_hotkey_firstrun_title")

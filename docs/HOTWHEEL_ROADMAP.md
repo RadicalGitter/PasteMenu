@@ -23,8 +23,8 @@ This is a running long-horizon scope list. It is not a release promise; it is a 
   - clear primary/secondary actions
   - disabled controls when unavailable
   - predictable Escape/Close behavior
-- Consider a more visual quick selector for frequent actions. See `docs/HOTWHEEL_DESIGN.md`.
-- Hotwheel direction is press-and-hold on the existing hotkey, with a fast configurable threshold.
+- A visual quick selector for frequent actions is in progress. See `docs/HOTWHEEL_DESIGN.md` and `docs/PROJECT_PROGRESS.md`.
+- Hotwheel invocation (press-and-hold existing hotkey, configurable threshold) is implemented. Lifecycle hardening and rendering decision are the next steps before visual polish.
 - Consider a denser, more polished Entry Editor layout after behavior is stable.
 - Reduce generated-style comments and replace them with fewer useful notes.
 - Standardize terminology:

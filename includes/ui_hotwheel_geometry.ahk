@@ -23,7 +23,7 @@ HotwheelGeometryDefaultConfig() {
 }
 
 HotwheelDpiScale() {
-    return A_ScreenDPI / 96
+    return 1.0
 }
 
 HotwheelScalePx(px, scale := 0) {
@@ -136,15 +136,14 @@ HotwheelLayoutCategorySlices(categoryNames, direction, config, hoveredCategory :
     if (count = 0)
         return slices
 
-    fanSpan := config.fanSpanDeg
+    fanSpan  := config.fanSpanDeg
     fanStart := HotwheelNormalizeAngle(HotwheelDirectionAngle(direction) - (fanSpan / 2))
+
     hoveredIndex := 0
-    if (hoveredCategory != "") {
-        for i, category in categoryNames {
-            if (category = hoveredCategory) {
-                hoveredIndex := i
-                break
-            }
+    for i, cat in categoryNames {
+        if (cat = hoveredCategory) {
+            hoveredIndex := i
+            break
         }
     }
 
@@ -160,7 +159,7 @@ HotwheelLayoutCategorySlices(categoryNames, direction, config, hoveredCategory :
         return slices
     }
 
-    width := fanSpan / count
+    width   := fanSpan / count
     current := fanStart
     for i, category in categoryNames {
         slices.Push(HotwheelMakeCategorySlice(category, current, current + width, config, i))

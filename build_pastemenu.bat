@@ -21,6 +21,16 @@ if not exist "%DIST_DIR%" mkdir "%DIST_DIR%"
 if not exist "%BACKUP_DIR%" mkdir "%BACKUP_DIR%"
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 
+set "APIKEY_FILE=%SCRIPT_DIR%apikey.ini"
+if not exist "%APIKEY_FILE%" (
+  > "%APIKEY_FILE%" echo ; PasteMenu local API credentials.
+  >> "%APIKEY_FILE%" echo ; This file is ignored by git. Do not commit real API keys.
+  >> "%APIKEY_FILE%" echo ; Add your Anthropic API key below, or set ANTHROPIC_API_KEY in your environment.
+  >> "%APIKEY_FILE%" echo.
+  >> "%APIKEY_FILE%" echo [anthropic]
+  >> "%APIKEY_FILE%" echo api_key=
+)
+
 set "STAMP="
 for /f "delims=" %%T in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do (
   if not defined STAMP set "STAMP=%%T"
@@ -91,6 +101,18 @@ echo Log:
 echo   %LOG%
 echo.
 
+echo Stopping any running PasteMenu.exe...
+>> "%LOG%" echo Stopping any running PasteMenu.exe before compile.
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "Get-Process PasteMenu -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; for ($i = 0; $i -lt 20 -and (Get-Process PasteMenu -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Milliseconds 250 }; if (Get-Process PasteMenu -ErrorAction SilentlyContinue) { exit 1 }"
+if errorlevel 1 (
+  echo Could not stop the running PasteMenu.exe process.
+  echo Close PasteMenu.exe manually, then rerun the build.
+  >> "%LOG%" echo Could not stop the running PasteMenu.exe process.
+  exit /b 1
+)
+echo.
+
 if exist "%OUT%" (
   set "BACKUP=%BACKUP_DIR%\PasteMenu_backup_!STAMP!.exe"
   copy /y "%OUT%" "!BACKUP!" >nul
@@ -124,6 +146,10 @@ if exist "%OUT%" (
   echo   %OUT%
   echo Log:
   echo   %LOG%
+  echo.
+
+  echo Launching %OUT%...
+  start "" "%OUT%"
   exit /b 0
 )
 

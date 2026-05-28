@@ -214,3 +214,8 @@ build/
 
 # Personal Windows shortcuts
 *.lnk
+
+# Local API credentials
+/apikey.ini
+/logs/
+/llmlogs/

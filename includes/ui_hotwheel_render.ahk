@@ -1,112 +1,331 @@
 ; ---------------------------------------------------------------------
-; Plain hotwheel renderer:
-; - Owns GUI/control creation only
-; - Consumes prepared state/view-model data
-; - Can be replaced by GDI+/layered rendering later
+; Hotwheel GDI+ fan renderer.
+; Owns: layered window creation, GDI+ bitmap, draw loop.
+; Consumes: view model + layout from state/geometry modules.
+; Does NOT decide targets, usage scores, or actions.
 ; ---------------------------------------------------------------------
+
+_HotwheelGdipToken := 0
+
+HotwheelStyle() {
+    return {
+        sliceFill:      0xDD1E2430,
+        sliceFillHover: 0xDD2A4F8A,
+        entryFill:      0xDD172040,
+        entryFillHover: 0xDD2868CC,
+        centerFill:     0xDD101420,
+        border:         0xFF2A3850,
+        textNormal:     0xFFAAB4C4,
+        textHover:      0xFFEEF2FF,
+        borderWidth:    1.5
+    }
+}
+
+; ---- GDI+ token (kept alive for the session) ----
+
+HotwheelGdipEnsure() {
+    global _HotwheelGdipToken
+    if !_HotwheelGdipToken
+        _HotwheelGdipToken := Gdip_Startup()
+}
+
+; ---- Open ----
 
 HotwheelRenderOpen(state) {
     global _HotwheelWindowState
-
     HotwheelRenderClose()
+    HotwheelGdipEnsure()
+
+    ; config.scale is now always 1.0 (logical pixels); renderScale is the physical/logical ratio.
+    config      := state.layout.config
+    renderScale := A_ScreenDPI / 96
+    r           := config.outerRadius + 24   ; logical px (outerRadius is logical, padding is logical)
+    cx          := Round(state.layout.centerX)
+    cy          := Round(state.layout.centerY)
+
+    HotwheelGetWorkAreaForPoint(cx, cy, &waLeft, &waTop, &waRight, &waBottom)
+    winW := r * 2   ; logical
+    winH := r * 2
+    winX := HotwheelClamp(cx - r, waLeft,  waRight  - winW)
+    winY := HotwheelClamp(cy - r, waTop,   waBottom - winH)
+
+    ; Physical bitmap dimensions for crisp GDI+ rendering
+    bmpW := Round(winW * renderScale)
+    bmpH := Round(winH * renderScale)
+    ; Physical local center within the bitmap
+    localCX := Round((cx - winX) * renderScale)
+    localCY := Round((cy - winY) * renderScale)
+
+    guiObj := Gui("+AlwaysOnTop -Caption +ToolWindow")
+    guiObj.Show("x" winX " y" winY " w" winW " h" winH " NoActivate")
+    hwnd := guiObj.Hwnd
+    WinSetExStyle(WinGetExStyle(hwnd) | 0x80000, hwnd)  ; WS_EX_LAYERED
 
     renderState := {
-        gui: 0,
+        gui:           guiObj,
+        hwnd:          hwnd,
         hotwheelState: state,
-        originX: 0,
-        originY: 0,
-        controls: [],
+        winX:          winX,
+        winY:          winY,
+        winW:          winW,
+        winH:          winH,
+        bmpW:          bmpW,
+        bmpH:          bmpH,
+        localCX:       localCX,
+        localCY:       localCY,
+        renderScale:   renderScale,
         visualTargets: [],
-        refreshing: false,
-        closing: false,
-        inputHook: 0,
-        openedTick: A_TickCount,
+        refreshing:    false,
+        closing:       false,
+        inputHook:     0,
+        openedTick:    A_TickCount,
         focusLostCloseEnabled: false
     }
     _HotwheelWindowState := renderState
-    HotwheelRenderCreateWindow(renderState)
+    HotwheelRenderDraw(renderState)
+
+    guiObj.OnEvent("Escape", HotwheelRenderEscape.Bind(renderState))
+    guiObj.OnEvent("Close",  HotwheelRenderCloseEvent.Bind(renderState))
     HotwheelInputStart(renderState)
 }
 
-HotwheelRenderCreateWindow(renderState) {
-    state := renderState.hotwheelState
-    vm := state.viewModel
-    frame := HotwheelRenderCompactFrame(vm)
-    guiObj := Gui("+AlwaysOnTop -Caption +ToolWindow +Border", "PasteMenu Hotwheel")
-    guiObj.BackColor := "F6F7F8"
-    guiObj.MarginX := 0
-    guiObj.MarginY := 0
-    guiObj.SetFont("s9", "Segoe UI")
-
-    renderState.gui := guiObj
-    renderState.originX := frame.left
-    renderState.originY := frame.top
-    renderState.frame := frame
-    renderState.controls := []
-    renderState.visualTargets := []
-
-    HotwheelRenderViewModel(renderState, vm)
-
-    guiObj.OnEvent("Escape", HotwheelRenderEscape.Bind(renderState))
-    guiObj.OnEvent("Close", HotwheelRenderCloseEvent.Bind(renderState))
-    guiObj.Show(
-        "x" frame.left
-        " y" frame.top
-        " w" frame.width
-        " h" frame.height
-        " NoActivate"
-    )
-}
+; ---- Refresh: redraw in place, no window destroy ----
 
 HotwheelRenderRefresh(renderState) {
-    if !IsObject(renderState)
-        return
-    if !IsObject(renderState.hotwheelState)
+    if !IsObject(renderState) || !IsObject(renderState.hotwheelState)
         return
     if renderState.refreshing || renderState.closing
         return
-
     renderState.refreshing := true
     try {
-        try renderState.gui.Destroy()
-        HotwheelRenderCreateWindow(renderState)
+        HotwheelRenderDraw(renderState)
     } finally {
         renderState.refreshing := false
     }
 }
 
-HotwheelRenderViewModel(renderState, vm) {
-    HotwheelRenderPanelBackground(renderState)
+; ---- Main draw ----
 
-    for _, sliceView in vm.categorySlices
-        HotwheelRenderCategoryLabel(renderState, vm, sliceView, A_Index)
+HotwheelRenderDraw(renderState) {
+    global _HotwheelGdipToken
+    if !_HotwheelGdipToken
+        return
 
-    for _, entryView in vm.entrySlices
-        HotwheelRenderEntryLabel(renderState, vm, entryView, A_Index)
+    state  := renderState.hotwheelState
+    layout := state.layout
+    vm     := state.viewModel
+    w      := renderState.bmpW        ; physical pixels
+    h      := renderState.bmpH
+    lcx    := renderState.localCX     ; physical local center
+    lcy    := renderState.localCY
+    rs     := renderState.renderScale ; physical/logical ratio
+    style  := HotwheelStyle()
 
-    for _, action in vm.centerActions
-        HotwheelRenderCenterAction(renderState, vm, action, A_Index)
+    ; Scale logical geometry radii to physical for GDI+ drawing
+    outerR := Round(layout.config.outerRadius * rs)
+    innerR := Round(layout.config.centerRadius * rs)
+
+    pBitmap := Gdip_CreateBitmap(w, h)
+    G       := Gdip_GraphicsFromImage(pBitmap)
+    Gdip_SetSmoothingMode(G, 4)
+    Gdip_SetTextRenderingHint(G, 4)
+    Gdip_GraphicsClear(G, 0x00000000)
+
+    ; Category slices: solid pies from center (center zone will cover inner area)
+    for _, slice in layout.categorySlices {
+        hovered   := (slice.kind = "category" || slice.kind = "more")
+            && (slice.category = state.hoveredCategory)
+        fillColor := hovered ? style.sliceFillHover : style.sliceFill
+        HotwheelDrawPieSlice(G, lcx, lcy, Round(slice.outerRadius * rs),
+            slice.rawStartDeg, slice.rawEndDeg, fillColor)
+    }
+
+    ; Entry slices: donut ring within hovered category
+    for _, slice in layout.entrySlices {
+        hovered := (state.hoverTarget.kind = "entry"
+            && state.hoverTarget.HasOwnProp("title")
+            && state.hoverTarget.title = slice.title)
+        fillColor := hovered ? style.entryFillHover : style.entryFill
+        HotwheelDrawDonutSlice(G, lcx, lcy,
+            Round(slice.innerRadius * rs), Round(slice.outerRadius * rs),
+            slice.rawStartDeg, slice.rawEndDeg, fillColor)
+    }
+
+    ; Borders: radial separators + outer arc
+    pPen := Gdip_CreatePen(style.border, style.borderWidth)
+    pi   := 3.141592653589793
+
+    for _, slice in layout.categorySlices {
+        rad := slice.rawStartDeg * pi / 180
+        Gdip_DrawLine(G, pPen,
+            lcx + Cos(rad) * innerR,  lcy + Sin(rad) * innerR,
+            lcx + Cos(rad) * outerR,  lcy + Sin(rad) * outerR)
+    }
+    if layout.categorySlices.Length > 0 {
+        last := layout.categorySlices[layout.categorySlices.Length]
+        rad  := last.rawEndDeg * pi / 180
+        Gdip_DrawLine(G, pPen,
+            lcx + Cos(rad) * innerR,  lcy + Sin(rad) * innerR,
+            lcx + Cos(rad) * outerR,  lcy + Sin(rad) * outerR)
+    }
+    if layout.categorySlices.Length > 0 {
+        fanStart := layout.categorySlices[1].rawStartDeg
+        fanSpan  := layout.categorySlices[layout.categorySlices.Length].rawEndDeg - fanStart
+        Gdip_DrawArc(G, pPen, lcx - outerR, lcy - outerR, outerR * 2, outerR * 2, fanStart, fanSpan)
+    }
+    Gdip_DeletePen(pPen)
+
+    ; Center zone (covers inner part of all pies)
+    HotwheelDrawCenterZone(G, lcx, lcy, vm, layout, style, w, h, rs)
+
+    ; Slice labels
+    for _, slice in layout.categorySlices {
+        hovered := (slice.kind = "category" || slice.kind = "more")
+            && (slice.category = state.hoveredCategory)
+        HotwheelDrawSliceLabel(G, lcx, lcy, slice, slice.label, hovered, style, w, h, rs)
+    }
+    for _, slice in layout.entrySlices {
+        hovered := (state.hoverTarget.kind = "entry"
+            && state.hoverTarget.HasOwnProp("title")
+            && state.hoverTarget.title = slice.title)
+        HotwheelDrawSliceLabel(G, lcx, lcy, slice, slice.label, hovered, style, w, h, rs)
+    }
+
+    HotwheelRenderApplyBitmap(renderState, pBitmap, G)
 }
 
-HotwheelRenderCompactFrame(vm) {
-    scale := HotwheelDpiScale()
-    width := Round(380 * scale)
-    categoryRows := Max(1, Ceil(vm.categorySlices.Length / 2))
-    entryRows := vm.entrySlices.Length
-    height := Round((112 + (categoryRows * 38) + (entryRows * 30)) * scale)
-    if (height < Round(210 * scale))
-        height := Round(210 * scale)
-    if (height > Round(520 * scale))
-        height := Round(520 * scale)
+HotwheelRenderApplyBitmap(renderState, pBitmap, G) {
+    Gdip_DeleteGraphics(G)
+    hBitmap := Gdip_CreateHBITMAPFromBitmap(pBitmap, 0)
+    Gdip_DisposeImage(pBitmap)
 
-    left := Round(vm.centerX - (width / 2))
-    top := Round(vm.centerY - (height / 2))
-    HotwheelGetWorkAreaForPoint(vm.centerX, vm.centerY, &waLeft, &waTop, &waRight, &waBottom)
-    left := HotwheelClamp(left, waLeft, waRight - width)
-    top := HotwheelClamp(top, waTop, waBottom - height)
+    hdcScreen := DllCall("GetDC", "Ptr", 0, "Ptr")
+    hdcMem    := DllCall("CreateCompatibleDC", "Ptr", hdcScreen, "Ptr")
+    old       := DllCall("SelectObject", "Ptr", hdcMem, "Ptr", hBitmap, "Ptr")
 
-    return {left: left, top: top, width: width, height: height}
+    ; No x/y — Gui.Show already positioned the window in logical coords.
+    ; Pass physical bitmap dimensions so the layered content matches 1:1.
+    UpdateLayeredWindow(renderState.hwnd, hdcMem,
+        , , renderState.bmpW, renderState.bmpH)
+
+    DllCall("SelectObject", "Ptr", hdcMem, "Ptr", old)
+    DllCall("DeleteDC", "Ptr", hdcMem)
+    DllCall("ReleaseDC", "Ptr", 0, "Ptr", hdcScreen)
+    DllCall("DeleteObject", "Ptr", hBitmap)
 }
+
+; ---- Drawing primitives ----
+
+HotwheelDrawPieSlice(G, cx, cy, outerRadius, startDeg, endDeg, fillColor) {
+    sweepDeg := endDeg - startDeg
+    if (Abs(sweepDeg) < 0.1)
+        return
+    pBrush := Gdip_BrushCreateSolid(fillColor)
+    Gdip_FillPie(G, pBrush, cx - outerRadius, cy - outerRadius,
+        outerRadius * 2, outerRadius * 2, startDeg, sweepDeg)
+    Gdip_DeleteBrush(pBrush)
+}
+
+HotwheelDrawDonutSlice(G, cx, cy, innerRadius, outerRadius, startDeg, endDeg, fillColor) {
+    sweepDeg := endDeg - startDeg
+    if (Abs(sweepDeg) < 0.1)
+        return
+    outerPts := HotwheelArcPoints(cx, cy, outerRadius, startDeg, endDeg)
+    innerPts  := HotwheelArcPoints(cx, cy, innerRadius, endDeg, startDeg)
+    pts := outerPts "|" innerPts
+
+    pPath  := Gdip_CreatePath(0)
+    Gdip_AddPathPolygon(pPath, pts)
+    pBrush := Gdip_BrushCreateSolid(fillColor)
+    Gdip_FillPath(G, pBrush, pPath)
+    Gdip_DeleteBrush(pBrush)
+    Gdip_DeletePath(pPath)
+}
+
+; Returns "x1,y1|x2,y2|..." arc points from fromDeg to toDeg
+HotwheelArcPoints(cx, cy, radius, fromDeg, toDeg) {
+    pi    := 3.141592653589793
+    span  := Abs(toDeg - fromDeg)
+    count := Max(2, Ceil(span / 2) + 1)
+    step  := (toDeg - fromDeg) / (count - 1)
+    pts   := ""
+    Loop count {
+        d   := fromDeg + (A_Index - 1) * step
+        rad := d * pi / 180
+        pts .= (A_Index > 1 ? "|" : "")
+            . Round(cx + Cos(rad) * radius, 1) "," Round(cy + Sin(rad) * radius, 1)
+    }
+    return pts
+}
+
+HotwheelDrawCenterZone(G, cx, cy, vm, layout, style, winW, winH, rs) {
+    r      := Round(layout.config.centerRadius * rs)   ; physical
+    vector := HotwheelDirectionVector(layout.direction)
+
+    pBrush := Gdip_BrushCreateSolid(style.centerFill)
+    Gdip_FillEllipse(G, pBrush, cx - r, cy - r, r * 2, r * 2)
+    Gdip_DeleteBrush(pBrush)
+
+    pPen := Gdip_CreatePen(style.border, style.borderWidth)
+    Gdip_DrawEllipse(G, pPen, cx - r, cy - r, r * 2, r * 2)
+
+    for _, dividerOffset in [-(r * 0.25), r * 0.25] {
+        halfChord := Sqrt(Max(0, r * r - dividerOffset * dividerOffset))
+        Gdip_DrawLine(G, pPen,
+            cx + vector.rightX * dividerOffset + vector.forwardX * halfChord,
+            cy + vector.rightY * dividerOffset + vector.forwardY * halfChord,
+            cx + vector.rightX * dividerOffset - vector.forwardX * halfChord,
+            cy + vector.rightY * dividerOffset - vector.forwardY * halfChord)
+    }
+    Gdip_DeletePen(pPen)
+
+    fSize := Max(8, Round(9 * rs))
+    boxH  := Round(22 * rs)
+    for _, action in vm.centerActions {
+        if !action.enabled || !IsObject(action.geometry)
+            continue
+        geom := action.geometry
+        midT := (geom.minTangent + geom.maxTangent) / 2 * rs   ; scale tangent to physical
+        ax   := cx + vector.rightX * midT
+        ay   := cy + vector.rightY * midT
+        boxW := Round(Abs(geom.maxTangent - geom.minTangent) * rs * 0.88)
+        colorStr := Format("{:08X}", style.textNormal)
+        clipped  := HotwheelRenderClipLabel(action.label, 10)
+        Gdip_TextToGraphics(G, clipped,
+            "x" Round(ax - boxW / 2) " y" Round(ay - boxH / 2)
+            " w" boxW " h" boxH " c" colorStr " s" fSize " Center vCenter",
+            "Segoe UI", winW, winH)
+    }
+}
+
+HotwheelDrawSliceLabel(G, lcx, lcy, slice, label, hovered, style, winW, winH, rs) {
+    if (label = "")
+        return
+    pi        := 3.141592653589793
+    midAngle  := (slice.rawStartDeg + slice.rawEndDeg) / 2
+    midRadius := (slice.innerRadius + slice.outerRadius) / 2 * rs   ; scale to physical
+    midRad    := midAngle * pi / 180
+    lx        := lcx + Cos(midRad) * midRadius
+    ly        := lcy + Sin(midRad) * midRadius
+
+    fSize    := Max(8, Round(9 * rs))
+    boxW     := Round(88 * rs)
+    boxH     := Round(22 * rs)
+    colorStr := Format("{:08X}", hovered ? style.textHover : style.textNormal)
+    clipped  := HotwheelRenderClipLabel(label, 14)
+    Gdip_TextToGraphics(G, clipped,
+        "x" Round(lx - boxW / 2) " y" Round(ly - boxH / 2)
+        " w" boxW " h" boxH " c" colorStr " s" fSize " Center vCenter",
+        "Segoe UI", winW, winH)
+}
+
+; ---- Hit testing: delegate to polar geometry ----
+
+HotwheelRenderTargetFromPoint(renderState, screenX, screenY) {
+    return 0  ; no rect targets — polar hit-testing via HotwheelStateTargetFromPoint
+}
+
+; ---- Utilities ----
 
 HotwheelClamp(value, minValue, maxValue) {
     if (maxValue < minValue)
@@ -118,157 +337,6 @@ HotwheelClamp(value, minValue, maxValue) {
     return value
 }
 
-HotwheelRenderPanelBackground(renderState) {
-    frame := renderState.frame
-    ctrl := renderState.gui.AddText(
-        "x0 y0 w" frame.width " h" frame.height " BackgroundF6F7F8",
-        ""
-    )
-    renderState.controls.Push(ctrl)
-}
-
-HotwheelRenderCategoryLabel(renderState, vm, sliceView, index) {
-    frame := renderState.frame
-    scale := HotwheelDpiScale()
-    padding := Round(12 * scale)
-    gap := Round(8 * scale)
-    top := Round(60 * scale)
-    cellW := Floor((frame.width - (padding * 2) - gap) / 2)
-    cellH := Round(30 * scale)
-    col := Mod(index - 1, 2)
-    row := Floor((index - 1) / 2)
-    x := padding + (col * (cellW + gap))
-    y := top + (row * (cellH + gap))
-
-    bg := sliceView.hovered ? "DCEBFF" : "FFFFFF"
-    text := HotwheelRenderClipLabel(sliceView.label, 22)
-    ctrl := renderState.gui.AddText(
-        "x" x " y" y " w" cellW " h" cellH " +Center +Border Background" bg,
-        text
-    )
-    ctrl.SetFont("s9 c1F2933")
-    renderState.controls.Push(ctrl)
-    HotwheelRenderAddVisualTarget(renderState, x, y, cellW, cellH, {
-        kind: sliceView.kind,
-        action: sliceView.kind = "more" ? "root_menu" : "hover",
-        category: sliceView.category,
-        label: sliceView.label,
-        enabled: true
-    })
-}
-
-HotwheelRenderEntryLabel(renderState, vm, entryView, index) {
-    frame := renderState.frame
-    scale := HotwheelDpiScale()
-    padding := Round(12 * scale)
-    categoryRows := Max(1, Ceil(vm.categorySlices.Length / 2))
-    yBase := Round(60 * scale) + (categoryRows * Round(38 * scale)) + Round(8 * scale)
-    rowH := Round(26 * scale)
-    x := padding
-    y := yBase + ((index - 1) * (rowH + Round(4 * scale)))
-    width := frame.width - (padding * 2)
-    text := HotwheelRenderClipLabel(entryView.label, 34)
-
-    ctrl := renderState.gui.AddText(
-        "x" x " y" y " w" width " h" rowH " +Center +Border BackgroundEAF7EF",
-        text
-    )
-    ctrl.SetFont("s9 c1F2933")
-    renderState.controls.Push(ctrl)
-    HotwheelRenderAddVisualTarget(renderState, x, y, width, rowH, {
-        kind: "entry",
-        action: "paste",
-        category: entryView.category,
-        title: entryView.title,
-        label: entryView.label,
-        enabled: true
-    })
-}
-
-HotwheelRenderCenterAction(renderState, vm, action, index) {
-    frame := renderState.frame
-    scale := HotwheelDpiScale()
-    padding := Round(12 * scale)
-    gap := Round(8 * scale)
-    width := Floor((frame.width - (padding * 2) - (gap * 2)) / 3)
-    height := Round(34 * scale)
-    label := action.enabled ? HotwheelRenderClipLabel(action.label, 16) : ""
-    x := padding + ((index - 1) * (width + gap))
-    y := Round(12 * scale)
-
-    bg := action.enabled ? "FFFFFF" : "EBECEE"
-    if (action.kind = "settings")
-        bg := "F7F2E8"
-
-    ctrl := renderState.gui.AddText(
-        "x" x " y" y " w" width " h" height " +Center +Border Background" bg,
-        label
-    )
-    ctrl.SetFont("s9 c111827")
-    renderState.controls.Push(ctrl)
-    HotwheelRenderAddVisualTarget(renderState, x, y, width, height, HotwheelRenderCenterActionTarget(action))
-}
-
-HotwheelRenderCenterActionTarget(action) {
-    if !action.enabled
-        return {kind: "empty", action: "none", slot: action.slot, label: "", enabled: false}
-    if (action.kind = "settings")
-        return {kind: "center", action: "settings", slot: action.slot, label: action.label, enabled: true}
-    if (action.kind = "paste") {
-        return {
-            kind: "center",
-            action: "paste",
-            slot: action.slot,
-            category: action.category,
-            title: action.title,
-            label: action.label,
-            enabled: true
-        }
-    }
-    return {kind: "empty", action: "none", slot: action.slot, label: "", enabled: false}
-}
-
-HotwheelRenderAddVisualTarget(renderState, x, y, width, height, target) {
-    renderState.visualTargets.Push({
-        x: x,
-        y: y,
-        width: width,
-        height: height,
-        target: target
-    })
-}
-
-HotwheelRenderTargetFromPoint(renderState, screenX, screenY) {
-    if !IsObject(renderState) || !renderState.HasOwnProp("visualTargets")
-        return 0
-
-    localX := screenX - renderState.originX
-    localY := screenY - renderState.originY
-    for _, item in renderState.visualTargets {
-        if (localX >= item.x && localX < item.x + item.width
-            && localY >= item.y && localY < item.y + item.height)
-            return item.target
-    }
-    return 0
-}
-
-HotwheelRenderPolarPosition(renderState, vm, angleDeg, radius) {
-    rad := angleDeg * 3.141592653589793 / 180
-    return {
-        x: (vm.centerX - renderState.originX) + (Cos(rad) * radius),
-        y: (vm.centerY - renderState.originY) + (Sin(rad) * radius)
-    }
-}
-
-HotwheelRenderCenterSlotPosition(renderState, vm, slotGeometry) {
-    vector := HotwheelDirectionVector(vm.direction)
-    tangent := (slotGeometry.minTangent + slotGeometry.maxTangent) / 2
-    return {
-        x: (vm.centerX - renderState.originX) + (vector.rightX * tangent),
-        y: (vm.centerY - renderState.originY) + (vector.rightY * tangent)
-    }
-}
-
 HotwheelRenderClipLabel(label, maxChars) {
     text := Trim(label)
     if (StrLen(text) <= maxChars)
@@ -277,6 +345,8 @@ HotwheelRenderClipLabel(label, maxChars) {
         return SubStr(text, 1, maxChars)
     return SubStr(text, 1, maxChars - 3) "..."
 }
+
+; ---- Event handlers ----
 
 HotwheelRenderEscape(renderState, *) {
     if renderState.refreshing || renderState.closing
@@ -289,6 +359,7 @@ HotwheelRenderEscape(renderState, *) {
 HotwheelRenderCloseEvent(renderState, *) {
     if renderState.refreshing || renderState.closing
         return
+    HotwheelDebugLog("GUI Close event (WM_CLOSE or X button)")
     if IsObject(renderState.hotwheelState) && renderState.hotwheelState.isOpen
         HotwheelStateClose(renderState.hotwheelState, HotwheelCloseReason("focus_lost"))
     HotwheelRenderClose()
@@ -316,9 +387,7 @@ HotwheelRenderOnActivate(wParam, lParam, msg, hwnd) {
         return
     if (hwnd != _HotwheelWindowState.gui.Hwnd)
         return
-
-    isInactive := ((wParam & 0xFFFF) = 0)
-    if isInactive
+    if ((wParam & 0xFFFF) = 0)
         SetTimer(HotwheelRenderFocusLostClose, -1)
 }
 
@@ -332,6 +401,7 @@ HotwheelRenderFocusLostClose() {
         return
     if _HotwheelWindowState.refreshing || _HotwheelWindowState.closing
         return
+    HotwheelDebugLog("Focus lost close")
     if IsObject(_HotwheelWindowState.hotwheelState)
         HotwheelStateClose(_HotwheelWindowState.hotwheelState, HotwheelCloseReason("focus_lost"))
     HotwheelRenderClose()
