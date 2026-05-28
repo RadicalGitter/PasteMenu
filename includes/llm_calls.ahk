@@ -88,6 +88,16 @@ LLMCallsNormalizeMaxTokens(value) {
     return Round(n)
 }
 
+LLMCallsResponseTokenBudget() {
+    global _LLMState
+    LLMCallsInitDefaults()
+    return Max(1, _LLMState.maxTokens - 5)
+}
+
+LLMCallsResponseBudgetInstruction() {
+    return "Your full response must fit within " LLMCallsResponseTokenBudget() " tokens."
+}
+
 LLMCallsNormalizeTimeoutSeconds(value) {
     try n := value + 0
     catch {
@@ -153,140 +163,227 @@ LLMCallsSavePromptData() {
     return WriteTextFileAtomic(LLMPromptFile, out, "UTF-8")
 }
 
-LLMExamplesLoad() {
-    global LLMExampleFile, _LLMExampleEntries
+LLMExampleLinksLoad() {
+    global LLMExampleLinkFile, _LLMExampleLinks
 
-    _LLMExampleEntries := Map()
-    EnsureParentDirectory(LLMExampleFile)
-    if !FileExist(LLMExampleFile)
+    _LLMExampleLinks := Map()
+    EnsureParentDirectory(LLMExampleLinkFile)
+    if !FileExist(LLMExampleLinkFile)
         return true
 
-    text := ReadTextFile(LLMExampleFile, "UTF-8")
+    text := ReadTextFile(LLMExampleLinkFile, "UTF-8")
     Loop Parse text, "`n", "`r" {
         line := A_LoopField
         if (Trim(line) = "")
             continue
-        parts := StrSplit(line, "`t", , 2)
-        if (parts.Length < 2)
+        parts := StrSplit(line, "`t")
+        if (parts.Length < 4)
             continue
-        category := parts[1]
-        title := parts[2]
-        if (category != "" && title != "")
-            _LLMExampleEntries[LLMExampleKey(category, title)] := true
+        llmCategory := parts[1]
+        llmTitle := parts[2]
+        snippetCategory := parts[3]
+        snippetTitle := parts[4]
+        if (llmCategory = "" || llmTitle = "" || snippetCategory = "" || snippetTitle = "")
+            continue
+        LLMExampleLinkSet(llmCategory, llmTitle, snippetCategory, snippetTitle, true, false)
     }
     return true
 }
 
-LLMExamplesSave() {
-    global LLMExampleFile, _LLMExampleEntries
+LLMExampleLinksSave() {
+    global LLMExampleLinkFile, _LLMExampleLinks
 
     out := ""
-    for key, _ in _LLMExampleEntries {
-        out .= key "`r`n"
+    for llmKey, links in _LLMExampleLinks {
+        llmParts := StrSplit(llmKey, "`t", , 2)
+        if (llmParts.Length < 2)
+            continue
+        for snippetKey, _ in links {
+            snippetParts := StrSplit(snippetKey, "`t", , 2)
+            if (snippetParts.Length < 2)
+                continue
+            out .= llmParts[1] "`t" llmParts[2] "`t" snippetParts[1] "`t" snippetParts[2] "`r`n"
+        }
     }
-    return WriteTextFileAtomic(LLMExampleFile, out, "UTF-8")
+    return WriteTextFileAtomic(LLMExampleLinkFile, out, "UTF-8")
 }
 
-LLMExampleKey(category, title) {
+LLMExampleLinkKey(category, title) {
     return category "`t" title
 }
 
-LLMExampleIsIncluded(category, title) {
-    global _LLMExampleEntries
-    if (category = "" || title = "")
-        return false
-    return _LLMExampleEntries.Has(LLMExampleKey(category, title))
-}
-
-LLMExampleSetIncluded(category, title, included, persist := true) {
-    global _LLMExampleEntries
-    if (category = "" || title = "")
+LLMExampleLinkSet(llmCategory, llmTitle, snippetCategory, snippetTitle, included := true, persist := true) {
+    global _LLMExampleLinks
+    if (llmCategory = "" || llmTitle = "" || snippetCategory = "" || snippetTitle = "")
         return
 
-    key := LLMExampleKey(category, title)
+    llmKey := LLMExampleLinkKey(llmCategory, llmTitle)
+    snippetKey := LLMExampleLinkKey(snippetCategory, snippetTitle)
+    if !_LLMExampleLinks.Has(llmKey)
+        _LLMExampleLinks[llmKey] := Map()
     if included
-        _LLMExampleEntries[key] := true
-    else if _LLMExampleEntries.Has(key)
-        _LLMExampleEntries.Delete(key)
+        _LLMExampleLinks[llmKey][snippetKey] := true
+    else if _LLMExampleLinks[llmKey].Has(snippetKey)
+        _LLMExampleLinks[llmKey].Delete(snippetKey)
+    if _LLMExampleLinks.Has(llmKey) && _LLMExampleLinks[llmKey].Count = 0
+        _LLMExampleLinks.Delete(llmKey)
 
     if persist
-        LLMExamplesSave()
+        LLMExampleLinksSave()
 }
 
-LLMExampleRenameEntry(oldCategory, oldTitle, newCategory, newTitle, persist := true) {
-    included := LLMExampleIsIncluded(oldCategory, oldTitle)
-    if (oldCategory != newCategory || oldTitle != newTitle)
-        LLMExampleSetIncluded(oldCategory, oldTitle, false, false)
-    if included
-        LLMExampleSetIncluded(newCategory, newTitle, true, false)
+LLMExampleLinksForCall(llmCategory, llmTitle) {
+    global _LLMExampleLinks
+    llmKey := LLMExampleLinkKey(llmCategory, llmTitle)
+    if _LLMExampleLinks.Has(llmKey)
+        return _LLMExampleLinks[llmKey]
+    return Map()
+}
+
+LLMExampleRenameSnippet(oldCategory, oldTitle, newCategory, newTitle, persist := true) {
+    global _LLMExampleLinks
+    oldKey := LLMExampleLinkKey(oldCategory, oldTitle)
+    newKey := LLMExampleLinkKey(newCategory, newTitle)
+    changed := false
+
+    for llmKey, links in _LLMExampleLinks {
+        if links.Has(oldKey) {
+            links.Delete(oldKey)
+            if (newCategory != "" && newTitle != "")
+                links[newKey] := true
+            changed := true
+        }
+    }
+    LLMExamplePruneEmptyLinks()
+    if changed && persist
+        LLMExampleLinksSave()
+}
+
+LLMExampleRemoveSnippet(category, title, persist := true) {
+    LLMExampleRenameSnippet(category, title, "", "", persist)
+}
+
+LLMExampleRenameSnippetCategory(oldCategory, newCategory) {
+    global _LLMExampleLinks
+    changed := false
+    for llmKey, links in _LLMExampleLinks {
+        replacements := []
+        for snippetKey, _ in links {
+            parts := StrSplit(snippetKey, "`t", , 2)
+            if (parts.Length >= 2 && parts[1] = oldCategory)
+                replacements.Push({oldKey: snippetKey, newKey: LLMExampleLinkKey(newCategory, parts[2])})
+        }
+        for _, item in replacements {
+            links.Delete(item.oldKey)
+            links[item.newKey] := true
+            changed := true
+        }
+    }
+    if changed
+        LLMExampleLinksSave()
+}
+
+LLMExampleRemoveSnippetCategory(category) {
+    global _LLMExampleLinks
+    changed := false
+    prefix := category "`t"
+    for llmKey, links in _LLMExampleLinks {
+        keys := []
+        for snippetKey, _ in links {
+            if (SubStr(snippetKey, 1, StrLen(prefix)) = prefix)
+                keys.Push(snippetKey)
+        }
+        for _, key in keys {
+            links.Delete(key)
+            changed := true
+        }
+    }
+    LLMExamplePruneEmptyLinks()
+    if changed
+        LLMExampleLinksSave()
+}
+
+LLMExampleRenameLLMEntry(oldCategory, oldTitle, newCategory, newTitle, persist := true) {
+    global _LLMExampleLinks
+    oldKey := LLMExampleLinkKey(oldCategory, oldTitle)
+    if !_LLMExampleLinks.Has(oldKey)
+        return
+    links := _LLMExampleLinks[oldKey]
+    _LLMExampleLinks.Delete(oldKey)
+    if (newCategory != "" && newTitle != "") {
+        newKey := LLMExampleLinkKey(newCategory, newTitle)
+        if !_LLMExampleLinks.Has(newKey) {
+            _LLMExampleLinks[newKey] := links
+        } else {
+            for snippetKey, _ in links
+                _LLMExampleLinks[newKey][snippetKey] := true
+        }
+    }
     if persist
-        LLMExamplesSave()
+        LLMExampleLinksSave()
 }
 
-LLMExampleRemoveEntry(category, title, persist := true) {
-    LLMExampleSetIncluded(category, title, false, persist)
+LLMExampleRemoveLLMEntry(category, title, persist := true) {
+    LLMExampleRenameLLMEntry(category, title, "", "", persist)
 }
 
-LLMExampleRenameCategory(oldCategory, newCategory) {
-    global _LLMExampleEntries
-
+LLMExampleRenameLLMCategory(oldCategory, newCategory) {
+    global _LLMExampleLinks
     changed := false
     replacements := []
-    for key, _ in _LLMExampleEntries {
-        parts := StrSplit(key, "`t", , 2)
-        if (parts.Length < 2)
-            continue
-        if (parts[1] = oldCategory)
-            replacements.Push({oldKey: key, newKey: LLMExampleKey(newCategory, parts[2])})
+    for llmKey, links in _LLMExampleLinks {
+        parts := StrSplit(llmKey, "`t", , 2)
+        if (parts.Length >= 2 && parts[1] = oldCategory)
+            replacements.Push({oldKey: llmKey, newKey: LLMExampleLinkKey(newCategory, parts[2]), links: links})
     }
     for _, item in replacements {
-        _LLMExampleEntries.Delete(item.oldKey)
-        _LLMExampleEntries[item.newKey] := true
+        _LLMExampleLinks.Delete(item.oldKey)
+        _LLMExampleLinks[item.newKey] := item.links
         changed := true
     }
     if changed
-        LLMExamplesSave()
+        LLMExampleLinksSave()
 }
 
-LLMExampleRemoveCategory(category) {
-    global _LLMExampleEntries
-
-    removed := false
+LLMExampleRemoveLLMCategory(category) {
+    global _LLMExampleLinks
+    prefix := category "`t"
+    changed := false
     keys := []
-    for key, _ in _LLMExampleEntries {
-        parts := StrSplit(key, "`t", , 2)
-        if (parts.Length >= 2 && parts[1] = category)
-            keys.Push(key)
+    for llmKey, _ in _LLMExampleLinks {
+        if (SubStr(llmKey, 1, StrLen(prefix)) = prefix)
+            keys.Push(llmKey)
     }
     for _, key in keys {
-        _LLMExampleEntries.Delete(key)
-        removed := true
+        _LLMExampleLinks.Delete(key)
+        changed := true
     }
-    if removed
-        LLMExamplesSave()
+    if changed
+        LLMExampleLinksSave()
 }
 
-LLMExampleCategoryHasIncluded(category) {
-    global _LLMExampleEntries
-
-    prefix := category "`t"
-    for key, _ in _LLMExampleEntries {
-        if (SubStr(key, 1, StrLen(prefix)) = prefix)
-            return true
+LLMExamplePruneEmptyLinks() {
+    global _LLMExampleLinks
+    keys := []
+    for llmKey, links in _LLMExampleLinks {
+        if links.Count = 0
+            keys.Push(llmKey)
     }
-    return false
+    for _, key in keys
+        _LLMExampleLinks.Delete(key)
 }
 
-LLMExamplesBuildPromptSection() {
-    global _LLMExampleEntries, _EntriesByCategory, _LLMState
+LLMExamplesBuildPromptSection(llmCategory, llmTitle) {
+    global _EntriesByCategory, _LLMState
 
     LLMCallsInitDefaults()
 
-    if !IsObject(_LLMExampleEntries) || _LLMExampleEntries.Count = 0
+    links := LLMExampleLinksForCall(llmCategory, llmTitle)
+    if links.Count = 0
         return ""
 
     lines := []
-    for key, _ in _LLMExampleEntries {
+    for key, _ in links {
         parts := StrSplit(key, "`t", , 2)
         if (parts.Length < 2)
             continue
@@ -358,7 +455,7 @@ LLMCallsPromptMenuAction(category, title, *) {
     _PendingPasteTarget := 0
 
     selectedText := ""
-    if !LLMCallsGetTargetSelectedText(target, &selectedText) {
+    if !LLMCallsResolveUserPayload(target, &selectedText) {
         ShowTransientToolTip(T("llm_no_selection"))
         return
     }
@@ -384,17 +481,49 @@ LLMCallsCustomMenuAction(*) {
     _PendingPasteTarget := 0
 
     selectedText := ""
-    if !LLMCallsGetTargetSelectedText(target, &selectedText) {
+    if !LLMCallsResolveUserPayload(target, &selectedText) {
         ShowTransientToolTip(T("llm_no_selection"))
         return
     }
     OpenLLMCustomWindow(selectedText, target)
 }
 
+; Resolve the user-message payload.
+; PDF contexts prefer highlighted text first because browser PDF viewers often
+; block or degrade full-document extraction.
+LLMCallsResolveUserPayload(target, &payload) {
+    payload := ""
+    if IsObject(target) && target.HasOwnProp("docContext") && IsObject(target.docContext) {
+        kind := target.docContext.HasOwnProp("kind") ? target.docContext.kind : ""
+        if (kind = "pdf") {
+            selectedText := ""
+            if LLMCallsGetTargetSelectedText(target, &selectedText) {
+                if (Trim(selectedText) != "" && !LLMDocLooksLikePdfUrl(selectedText)) {
+                    payload := selectedText
+                    return true
+                }
+            }
+        }
+
+        docText := LLMDocResolvePayload(target.docContext)
+        if (Trim(docText) != "") {
+            payload := docText
+            return true
+        }
+        ; Doc process detected but extraction returned nothing (COM unavailable or empty doc).
+        ; Skip the slow clipboard dance — it would just hang then fail anyway for doc windows.
+        if (kind = "word" || kind = "pdf")
+            return false
+    }
+    return LLMCallsGetTargetSelectedText(target, &payload)
+}
+
 LLMCallsPendingTargetHasSelection() {
     global _PendingPasteTarget
     if !IsObject(_PendingPasteTarget)
         return false
+    if _PendingPasteTarget.HasOwnProp("docContext") && IsObject(_PendingPasteTarget.docContext)
+        return true
     if _PendingPasteTarget.HasOwnProp("llmSelectionChecked")
         return _PendingPasteTarget.llmHasSelection
 
@@ -544,22 +673,41 @@ LLMCallsShouldSkipConfirm() {
 }
 
 OpenLLMConfirmWindow(category, title, systemPrompt, selectedText, pasteTarget := 0) {
+    global _LLMState
+
     confirmGui := Gui("+AlwaysOnTop +Resize +MinSize520x190", T("llm_calls") " - " title)
     confirmGui.SetFont("s10", "Segoe UI")
 
     confirmGui.AddText("x12 y12 w496", category " / " title)
     chkSkip := confirmGui.AddCheckBox("x12 y44 w300 h24", T("llm_dont_ask_hour"))
 
-    confirmGui.AddText("x12 y84 w496 vContentsLabel Hidden", T("llm_system_prompt"))
-    systemEdit := confirmGui.AddEdit("x12 y104 w496 h120 Multi WantTab Hidden")
-    systemEdit.Value := systemPrompt
-    confirmGui.AddText("x12 y236 w496 vSelectedLabel Hidden", T("llm_selected_text"))
-    textEdit := confirmGui.AddEdit("x12 y256 w496 h150 Multi WantTab Hidden")
-    textEdit.Value := selectedText
+    costText := confirmGui.AddText("x12 y76 w496 h20", "")
 
-    btnSend := confirmGui.AddButton("x236 y120 w82 h30", T("llm_send"))
-    btnCancel := confirmGui.AddButton("x328 y120 w82 h30", T("hotkey_dialog_cancel"))
-    btnShow := confirmGui.AddButton("x420 y120 w88 h30", T("llm_show_contents"))
+    nagVisible := LLMPricingShouldNag()
+    nagText := 0
+    btnUpdateNow := 0
+    btnRowY := 108
+    if nagVisible {
+        nagText := confirmGui.AddText("x12 y104 w380 h22 +0x200", T("llm_pricing_stale_notice"))
+        btnUpdateNow := confirmGui.AddButton("x396 y100 w112 h26", T("llm_pricing_update_now"))
+        btnRowY := 140
+    }
+
+    btnSend := confirmGui.AddButton("x236 y" btnRowY " w82 h30", T("llm_send"))
+    btnCancel := confirmGui.AddButton("x328 y" btnRowY " w82 h30", T("hotkey_dialog_cancel"))
+    btnShow := confirmGui.AddButton("x420 y" btnRowY " w88 h30", T("llm_show_contents"))
+
+    ; Content controls live below the button row; hidden until "Show contents" is clicked.
+    contentStartY  := btnRowY + 44
+    systemEditY    := contentStartY + 20   ; system-prompt label(20) + gap
+    selectedLabelY := contentStartY + 148  ; + sysEdit(120) + gap(8) + label(20)
+    textEditY      := contentStartY + 168  ; + selectedLabel(20)
+    confirmGui.AddText("x12 y" contentStartY " w496 vContentsLabel Hidden", T("llm_system_prompt"))
+    systemEdit := confirmGui.AddEdit("x12 y" systemEditY " w496 h120 Multi WantTab Hidden")
+    systemEdit.Value := systemPrompt
+    confirmGui.AddText("x12 y" selectedLabelY " w496 vSelectedLabel Hidden", T("llm_selected_text"))
+    textEdit := confirmGui.AddEdit("x12 y" textEditY " w496 h150 Multi WantTab Hidden")
+    textEdit.Value := selectedText
 
     state := {
         gui: confirmGui,
@@ -572,15 +720,53 @@ OpenLLMConfirmWindow(category, title, systemPrompt, selectedText, pasteTarget :=
         btnSend: btnSend,
         btnCancel: btnCancel,
         btnShow: btnShow,
+        costText: costText,
+        nagText: nagText,
+        btnUpdateNow: btnUpdateNow,
+        nagVisible: nagVisible,
+        userUpdatedPricing: false,
+        btnRowY: btnRowY,
         expanded: false
     }
 
     btnSend.OnEvent("Click", LLMConfirmSend.Bind(state))
     btnCancel.OnEvent("Click", LLMConfirmClose.Bind(state))
     btnShow.OnEvent("Click", LLMConfirmToggleContents.Bind(state))
+    if IsObject(btnUpdateNow)
+        btnUpdateNow.OnEvent("Click", LLMConfirmUpdatePricing.Bind(state))
     confirmGui.OnEvent("Close", LLMConfirmClose.Bind(state))
     confirmGui.OnEvent("Escape", LLMConfirmClose.Bind(state))
-    confirmGui.Show("w520 h164")
+
+    LLMConfirmRefreshCost(state)
+    confirmGui.Show("w520 h" (btnRowY + 56))
+}
+
+LLMConfirmRefreshCost(state) {
+    global _LLMState
+    systemPrompt := state.systemEdit.Value
+    selectedText := state.textEdit.Value
+    finalSystemPrompt := LLMCallsBuildFinalSystemPrompt(state.category, state.title, systemPrompt)
+    estTokens := LLMPricingEstimateInputTokens(finalSystemPrompt) + LLMPricingEstimateInputTokens(selectedText)
+    costLine := LLMPricingFormatCostLine(_LLMState.model, estTokens, _LLMState.maxTokens)
+    if (costLine = "")
+        costLine := T("llm_pricing_unknown") " — " _LLMState.model
+    state.costText.Text := T("llm_estimated_cost") ": " costLine
+}
+
+LLMConfirmUpdatePricing(state, *) {
+    ShowTransientToolTip(T("llm_pricing_updating"))
+    errMsg := ""
+    if !LLMPricingUpdateAll(&errMsg) {
+        MsgBox T("llm_pricing_update_failed") ".`r`n`r`n" errMsg, T("llm_response_title")
+        return
+    }
+    state.userUpdatedPricing := true
+    if IsObject(state.nagText)
+        try state.nagText.Visible := false
+    if IsObject(state.btnUpdateNow)
+        try state.btnUpdateNow.Visible := false
+    LLMConfirmRefreshCost(state)
+    ShowTransientToolTip(T("llm_pricing_update_ok"))
 }
 
 LLMConfirmToggleContents(state, *) {
@@ -593,15 +779,40 @@ LLMConfirmToggleContents(state, *) {
     state.btnShow.Text := visible ? T("llm_hide_contents") : T("llm_show_contents")
 
     if visible {
-        state.btnSend.Move(236, 420)
-        state.btnCancel.Move(328, 420)
-        state.btnShow.Move(420, 420)
-        state.gui.Show("w520 h464")
+        ; Measure how far the window can grow before hitting the screen edge.
+        winX := 0
+        winY := 0
+        WinGetPos(&winX, &winY, , , "ahk_id " state.gui.Hwnd)
+
+        ; Find the work-area bottom of whichever monitor the window is on.
+        workBottom := A_ScreenHeight
+        Loop MonitorGetCount() {
+            MonitorGetWorkArea(A_Index, &mLeft, &mTop, &mRight, &mBottom)
+            if (winX + 260 >= mLeft && winX + 260 < mRight && winY >= mTop && winY < mBottom) {
+                workBottom := mBottom
+                break
+            }
+        }
+
+        ; Content sits below the button row:
+        ;   btnRow(30) + gap(14) = contentStart
+        ;   label(20) + sysEdit(120) + gap(8) + label(20) = 168 to selectedEdit
+        contentStartY := state.btnRowY + 44
+        selectedEditY := contentStartY + 168
+        bottomPad     := 12
+        screenMargin  := 16
+
+        idealH  := selectedEditY + 150 + bottomPad          ; preferred: 150-px selected edit
+        maxH    := workBottom - winY - screenMargin          ; hard cap: don't touch screen edge
+        actualH := Max(Min(idealH, maxH), contentStartY + 60) ; always show at least a sliver
+
+        ; Let the selected-text edit absorb whatever vertical space remains.
+        selectedEditH := Max(40, actualH - selectedEditY - bottomPad)
+        state.textEdit.Move(, , , selectedEditH)
+
+        state.gui.Show("w520 h" actualH)
     } else {
-        state.btnSend.Move(236, 120)
-        state.btnCancel.Move(328, 120)
-        state.btnShow.Move(420, 120)
-        state.gui.Show("w520 h164")
+        state.gui.Show("w520 h" (state.btnRowY + 56))
     }
 }
 
@@ -610,6 +821,9 @@ LLMConfirmSend(state, *) {
 
     if (state.chkSkip.Value = 1)
         _LLMState.confirmUntilTick := A_TickCount + 3600000
+
+    if (state.nagVisible && !state.userUpdatedPricing)
+        LLMPricingSnoozeNag()
 
     systemPrompt := state.systemEdit.Value
     selectedText := state.textEdit.Value
@@ -766,7 +980,7 @@ LLMCallsStartRequest(category, title, systemPrompt, selectedText, pasteTarget :=
     }
 
     finalSystemPrompt := ""
-    body := LLMCallsBuildRequestBody(systemPrompt, selectedText, &finalSystemPrompt)
+    body := LLMCallsBuildRequestBody(category, title, systemPrompt, selectedText, &finalSystemPrompt)
     callState := LLMCallsOpenResponseWindow(category, title, systemPrompt, finalSystemPrompt, selectedText, pasteTarget)
 
     req := 0
@@ -811,31 +1025,41 @@ LLMCallsCreateProviderRequest(apiKey) {
     throw Error("Unsupported LLM provider: " _LLMState.provider)
 }
 
-LLMCallsBuildRequestBody(systemPrompt, selectedText, &finalSystemPrompt := "") {
+LLMCallsBuildRequestBody(category, title, systemPrompt, selectedText, &finalSystemPrompt := "") {
     global _LLMState
     switch _LLMState.provider {
         case "anthropic":
-            return LLMCallsBuildAnthropicBody(systemPrompt, selectedText, &finalSystemPrompt)
+            return LLMCallsBuildAnthropicBody(category, title, systemPrompt, selectedText, &finalSystemPrompt)
     }
     throw Error("Unsupported LLM provider: " _LLMState.provider)
 }
 
-LLMCallsBuildAnthropicBody(systemPrompt, selectedText, &finalSystemPrompt := "") {
+LLMCallsBuildAnthropicBody(category, title, systemPrompt, selectedText, &finalSystemPrompt := "") {
     global _LLMState
+    finalSystemPrompt := LLMCallsBuildFinalSystemPrompt(category, title, systemPrompt)
 
-    examples := LLMExamplesBuildPromptSection()
+    body := '{"model":"' JsonEscape(_LLMState.model) '","max_tokens":' _LLMState.maxTokens ','
+    if (Trim(finalSystemPrompt) != "")
+        body .= '"system":"' JsonEscape(finalSystemPrompt) '",'
+    body .= '"messages":[{"role":"user","content":"' JsonEscape(selectedText) '"}]}'
+    return body
+}
+
+; Build the system prompt that will actually be sent: raw prompt + examples + budget instruction.
+LLMCallsBuildFinalSystemPrompt(category, title, systemPrompt) {
+    examples := LLMExamplesBuildPromptSection(category, title)
     if (examples != "") {
         if (Trim(systemPrompt) != "")
             systemPrompt .= "`n`n"
         systemPrompt .= examples
     }
-    finalSystemPrompt := systemPrompt
-
-    body := '{"model":"' JsonEscape(_LLMState.model) '","max_tokens":' _LLMState.maxTokens ','
-    if (Trim(systemPrompt) != "")
-        body .= '"system":"' JsonEscape(systemPrompt) '",'
-    body .= '"messages":[{"role":"user","content":"' JsonEscape(selectedText) '"}]}'
-    return body
+    budgetInstruction := LLMCallsResponseBudgetInstruction()
+    if (Trim(budgetInstruction) != "") {
+        if (Trim(systemPrompt) != "")
+            systemPrompt .= "`n`n"
+        systemPrompt .= budgetInstruction
+    }
+    return systemPrompt
 }
 
 LLMCallsPollRequest(callState) {
@@ -865,7 +1089,7 @@ LLMCallsPollRequest(callState) {
     status := 0
     responseText := ""
     try status := req.Status
-    try responseText := req.ResponseText
+    responseText := LLMCallsReadResponseUtf8(req)
     callState.httpStatus := status
     callState.rawResponseText := responseText
 
@@ -887,6 +1111,30 @@ LLMCallsAbortRequest(state) {
     if IsObject(state) && IsObject(state.request) {
         try state.request.Abort()
     }
+}
+
+; Read the HTTP response body as a properly decoded UTF-8 string.
+; WinHttp.ResponseText defaults to the system code page (usually CP1252) when the
+; Content-Type header omits an explicit charset — causing mojibake for em-dashes,
+; curly quotes, and any other non-ASCII characters in the JSON payload.
+; ADODB.Stream lets us hand it the raw bytes and decode as UTF-8 explicitly.
+LLMCallsReadResponseUtf8(req) {
+    try {
+        stream := ComObject("ADODB.Stream")
+        stream.Type := 1        ; adTypeBinary
+        stream.Open()
+        stream.Write(req.ResponseBody)
+        stream.Position := 0
+        stream.Type := 2        ; adTypeText
+        stream.Charset := "UTF-8"
+        txt := stream.ReadText()
+        stream.Close()
+        return txt
+    }
+    ; ADODB unavailable — fall back to ResponseText (may still mojibake on non-ASCII).
+    txt := ""
+    try txt := req.ResponseText
+    return txt
 }
 
 LLMCallsExtractProviderText(provider, responseText) {
@@ -1140,38 +1388,144 @@ OpenLLMSettingsWindow(*) {
     providerDDL.Enabled := false
 
     sGui.AddText("x12 y52 w120", T("llm_model"))
-    modelEdit := sGui.AddEdit("x140 y50 w280 h24", _LLMState.model)
+    modelItems := LLMSettingsBuildModelComboItems(_LLMState.model)
+    modelCombo := sGui.AddComboBox("x140 y50 w280 vModelCombo", modelItems)
+    modelCombo.Text := _LLMState.model
+    modelPriceText := sGui.AddText("x430 y52 w230 h20", "")
 
-    sGui.AddText("x12 y90 w120", T("llm_max_tokens"))
-    maxTokensEdit := sGui.AddEdit("x140 y88 w90 h24 Number", _LLMState.maxTokens "")
+    btnUpdatePricing := sGui.AddButton("x140 y82 w170 h26", T("llm_update_pricing"))
+    pricingUpdatedText := sGui.AddText("x320 y86 w340 h20", "")
 
-    sGui.AddText("x12 y128 w120", T("llm_timeout_seconds"))
-    timeoutEdit := sGui.AddEdit("x140 y126 w90 h24 Number", _LLMState.timeoutSeconds "")
+    btnRefreshModels := sGui.AddButton("x140 y114 w170 h26", T("llm_refresh_models"))
+    modelsUpdatedText := sGui.AddText("x320 y118 w340 h20", "")
 
-    sGui.AddText("x12 y166 w120", T("llm_example_preface"))
-    examplePrefaceEdit := AddStandardBorderEdit(sGui, 140, 164, 520, 86, "Multi WantTab")
+    sGui.AddText("x12 y150 w120", T("llm_max_tokens"))
+    maxTokensEdit := sGui.AddEdit("x140 y148 w90 h24 Number", _LLMState.maxTokens "")
+    maxTokensHint := sGui.AddText("x240 y150 w420 h24", LLMSettingsMaxTokenHint())
+
+    sGui.AddText("x12 y188 w120", T("llm_timeout_seconds"))
+    timeoutEdit := sGui.AddEdit("x140 y186 w90 h24 Number", _LLMState.timeoutSeconds "")
+
+    sGui.AddText("x12 y226 w120", T("llm_example_preface"))
+    examplePrefaceEdit := AddStandardBorderEdit(sGui, 140, 224, 520, 86, "Multi WantTab")
     examplePrefaceEdit.Value := _LLMState.examplePreface
 
-    btnApiKey := sGui.AddButton("x12 y270 w170 h30", T("llm_open_api_key"))
-    btnSave := sGui.AddButton("x490 y270 w74 h30", T("hotkey_dialog_save"))
-    btnClose := sGui.AddButton("x574 y270 w74 h30", T("settings_close"))
+    btnApiKey := sGui.AddButton("x12 y330 w170 h30", T("llm_open_api_key"))
+    btnSave := sGui.AddButton("x490 y330 w74 h30", T("hotkey_dialog_save"))
+    btnClose := sGui.AddButton("x574 y330 w74 h30", T("settings_close"))
 
     state := {
         gui: sGui,
         providerDDL: providerDDL,
-        modelEdit: modelEdit,
+        modelCombo: modelCombo,
+        modelPriceText: modelPriceText,
+        pricingUpdatedText: pricingUpdatedText,
+        modelsUpdatedText: modelsUpdatedText,
+        btnUpdatePricing: btnUpdatePricing,
+        btnRefreshModels: btnRefreshModels,
         maxTokensEdit: maxTokensEdit,
+        maxTokensHint: maxTokensHint,
         timeoutEdit: timeoutEdit,
         examplePrefaceEdit: examplePrefaceEdit
     }
     _LLMState.settingsWindow := state
 
+    LLMSettingsRefreshPricingLabels(state)
+
     btnApiKey.OnEvent("Click", LLMSettingsOpenApiKeyFile.Bind(state))
     btnSave.OnEvent("Click", LLMSettingsSave.Bind(state))
     btnClose.OnEvent("Click", LLMSettingsClose.Bind(state))
+    btnUpdatePricing.OnEvent("Click", LLMSettingsUpdatePricing.Bind(state))
+    btnRefreshModels.OnEvent("Click", LLMSettingsRefreshModels.Bind(state))
+    modelCombo.OnEvent("Change", LLMSettingsModelChanged.Bind(state))
     sGui.OnEvent("Close", LLMSettingsClose.Bind(state))
     sGui.OnEvent("Escape", LLMSettingsClose.Bind(state))
-    sGui.Show("w680 h312")
+    sGui.Show("w680 h372")
+}
+
+LLMSettingsBuildModelComboItems(currentModel) {
+    items := []
+    seen := Map()
+    add(id) {
+        id := Trim(id)
+        if (id = "" || seen.Has(id))
+            return
+        seen[id] := true
+        items.Push(id)
+    }
+    add(currentModel)
+    for _, id in LLMPricingModelList()
+        add(id)
+    LLMPricingInit()
+    global _LLMPricingState
+    for id, _ in _LLMPricingState.prices
+        add(id)
+    return items
+}
+
+LLMSettingsRefreshPricingLabels(state) {
+    LLMPricingInit()
+    global _LLMPricingState
+    state.pricingUpdatedText.Text := T("llm_pricing_last_updated") ": " LLMPricingFormatTimestamp(_LLMPricingState.pricingUpdated)
+    state.modelsUpdatedText.Text := T("llm_models_last_updated") ": " LLMPricingFormatTimestamp(_LLMPricingState.modelsUpdated)
+    LLMSettingsModelChanged(state, state.modelCombo)
+}
+
+LLMSettingsModelChanged(state, ctrl, *) {
+    modelId := Trim(ctrl.Text)
+    if (modelId = "") {
+        state.modelPriceText.Text := ""
+        return
+    }
+    p := LLMPricingForModel(modelId)
+    if !IsObject(p) {
+        state.modelPriceText.Text := T("llm_pricing_unknown")
+        return
+    }
+    state.modelPriceText.Text := Format("${:.2f} in / ${:.2f} out per Mtok", p.input, p.output)
+}
+
+LLMSettingsUpdatePricing(state, *) {
+    ShowTransientToolTip(T("llm_pricing_updating"))
+    errMsg := ""
+    ok := LLMPricingUpdateAll(&errMsg)
+    if !ok {
+        MsgBox T("llm_pricing_update_failed") ".`r`n`r`n" errMsg, T("llm_settings_title")
+        return
+    }
+
+    ; Rebuild model combo with the freshly fetched list.
+    currentText := Trim(state.modelCombo.Text)
+    state.modelCombo.Delete()
+    items := LLMSettingsBuildModelComboItems(currentText)
+    state.modelCombo.Add(items)
+    state.modelCombo.Text := currentText
+    LLMSettingsRefreshPricingLabels(state)
+    if (errMsg != "")
+        ShowTransientToolTip(errMsg)
+    else
+        ShowTransientToolTip(T("llm_pricing_update_ok"))
+}
+
+LLMSettingsRefreshModels(state, *) {
+    errMsg := ""
+    models := LLMPricingFetchModels(&errMsg)
+    if !IsObject(models) || models.Length = 0 {
+        MsgBox T("llm_pricing_update_failed") ".`r`n`r`n" errMsg, T("llm_settings_title")
+        return
+    }
+    global _LLMPricingState
+    LLMPricingInit()
+    _LLMPricingState.models := models
+    _LLMPricingState.modelsUpdated := A_Now
+    LLMPricingSave()
+
+    currentText := Trim(state.modelCombo.Text)
+    state.modelCombo.Delete()
+    state.modelCombo.Add(LLMSettingsBuildModelComboItems(currentText))
+    state.modelCombo.Text := currentText
+    LLMSettingsRefreshPricingLabels(state)
+    ShowTransientToolTip(T("llm_pricing_update_ok"))
 }
 
 LLMSettingsOpenApiKeyFile(state, *) {
@@ -1184,16 +1538,21 @@ LLMSettingsOpenApiKeyFile(state, *) {
 LLMSettingsSave(state, *) {
     global _LLMState
 
-    model := Trim(state.modelEdit.Value)
+    model := Trim(state.modelCombo.Text)
     if (model != "")
         _LLMState.model := model
     _LLMState.maxTokens := LLMCallsNormalizeMaxTokens(state.maxTokensEdit.Value)
     _LLMState.timeoutSeconds := LLMCallsNormalizeTimeoutSeconds(state.timeoutEdit.Value)
     _LLMState.examplePreface := state.examplePrefaceEdit.Value
     state.maxTokensEdit.Value := _LLMState.maxTokens ""
+    state.maxTokensHint.Text := LLMSettingsMaxTokenHint()
     state.timeoutEdit.Value := _LLMState.timeoutSeconds ""
     LLMCallsSaveToSettings()
     ShowTransientToolTip(T("msg_settings_saved"))
+}
+
+LLMSettingsMaxTokenHint() {
+    return T("llm_max_tokens_hint") " " LLMCallsResponseBudgetInstruction()
 }
 
 LLMSettingsClose(state, *) {
@@ -1225,7 +1584,7 @@ OpenLLMCallsEditor(category := "", *) {
     editorGui.AddGroupBox("x10 y8 w220 h540", "Categories")
     categoryList := editorGui.AddListBox("x22 y30 w196 h380", _LLMCategories)
     btnCatRename := editorGui.AddButton("x22 y418 w95 h30", T("menu_rename"))
-    btnCatDelete := editorGui.AddButton("x123 y418 w95 h30", T("menu_delete_category"))
+    btnCatDelete := editorGui.AddButton("x123 y418 w95 h30", "Delete")
     btnCatNew := editorGui.AddButton("x22 y454 w196 h30", T("menu_new_category"))
 
     editorGui.AddGroupBox("x240 y8 w250 h540", "Entries")
@@ -1238,8 +1597,9 @@ OpenLLMCallsEditor(category := "", *) {
     contentEdit := AddStandardBorderEdit(editorGui, 514, 98, 500, 390, "Multi WantTab")
 
     btnSave := editorGui.AddButton("x514 y514 w100 h28", "Save")
-    btnNew := editorGui.AddButton("x622 y514 w110 h28", "New entry")
-    btnDelete := editorGui.AddButton("x740 y514 w100 h28", "Delete")
+    btnNew := editorGui.AddButton("x614 y514 w110 h28", "New entry")
+    btnDelete := editorGui.AddButton("x724 y514 w100 h28", "Delete")
+    btnExamples := editorGui.AddButton("x824 y514 w100 h28", T("llm_examples"))
     btnClose := editorGui.AddButton("x924 y514 w90 h28", "Close")
 
     state := {
@@ -1248,6 +1608,7 @@ OpenLLMCallsEditor(category := "", *) {
         entryList: entryList,
         titleEdit: titleEdit,
         contentEdit: contentEdit,
+        btnExamples: btnExamples,
         currentCategory: category,
         currentTitle: "",
         suppressCategoryChange: false
@@ -1262,6 +1623,7 @@ OpenLLMCallsEditor(category := "", *) {
     btnSave.OnEvent("Click", LLMEditorSave.Bind(state))
     btnNew.OnEvent("Click", LLMEditorNew.Bind(state))
     btnDelete.OnEvent("Click", LLMEditorDelete.Bind(state))
+    btnExamples.OnEvent("Click", OpenLLMExampleManager.Bind(state))
     btnClose.OnEvent("Click", LLMEditorClose.Bind(state))
     editorGui.OnEvent("Close", LLMEditorClose.Bind(state))
     editorGui.OnEvent("Escape", LLMEditorClose.Bind(state))
@@ -1327,6 +1689,7 @@ LLMEditorSelectEntry(state, ctrl, *) {
     state.currentTitle := title
     state.titleEdit.Value := title
     state.contentEdit.Value := _LLMEntriesByCategory[state.currentCategory][title]
+    state.btnExamples.Enabled := true
 }
 
 LLMEditorNew(state, *) {
@@ -1334,6 +1697,7 @@ LLMEditorNew(state, *) {
     try state.entryList.Value := 0
     state.titleEdit.Value := ""
     state.contentEdit.Value := ""
+    state.btnExamples.Enabled := false
     state.titleEdit.Focus()
 }
 
@@ -1364,6 +1728,7 @@ LLMEditorSave(state, *) {
         if idxOld
             order[idxOld] := newTitle
         entries.Delete(oldTitle)
+        LLMExampleRenameLLMEntry(category, oldTitle, category, newTitle, false)
     } else if !entries.Has(newTitle) {
         order.Push(newTitle)
     }
@@ -1373,6 +1738,8 @@ LLMEditorSave(state, *) {
         MsgBox "Could not save LLM prompts.", T("llm_prompt_editor_title")
         return
     }
+    if (oldTitle != "" && oldTitle != newTitle)
+        LLMExampleLinksSave()
     LLMEditorLoadCategory(state, category, newTitle)
 }
 
@@ -1395,7 +1762,9 @@ LLMEditorDelete(state, *) {
     if idx
         order.RemoveAt(idx)
 
+    LLMExampleRemoveLLMEntry(category, title, false)
     LLMCallsSavePromptData()
+    LLMExampleLinksSave()
     LLMEditorLoadCategory(state, category, "", order.Length = 0)
 }
 
@@ -1421,6 +1790,7 @@ LLMEditorRenameCategory(state, *) {
     _LLMEntryOrderByCategory[newName] := _LLMEntryOrderByCategory[oldName]
     _LLMEntriesByCategory.Delete(oldName)
     _LLMEntryOrderByCategory.Delete(oldName)
+    LLMExampleRenameLLMCategory(oldName, newName)
     LLMCallsSavePromptData()
     LLMEditorRefreshCategoryList(state)
     LLMEditorLoadCategory(state, newName)
@@ -1439,6 +1809,7 @@ LLMEditorDeleteCategory(state, *) {
         _LLMCategories.RemoveAt(idx)
     _LLMEntriesByCategory.Delete(category)
     _LLMEntryOrderByCategory.Delete(category)
+    LLMExampleRemoveLLMCategory(category)
 
     if (_LLMCategories.Length = 0)
         LLMEditorEnsureCategory("General")
@@ -1487,6 +1858,191 @@ LLMEditorClose(state, *) {
     try state.gui.Destroy()
     if IsObject(_LLMState)
         _LLMState.promptEditor := 0
+}
+
+OpenLLMExampleManager(editorState, *) {
+    if !IsObject(editorState) || editorState.currentTitle = "" {
+        SoundBeep 1200
+        return
+    }
+    if !LoadCurrentSnippetData(&err) {
+        MsgBox err, T("llm_examples")
+        return
+    }
+
+    llmCategory := editorState.currentCategory
+    llmTitle := editorState.currentTitle
+    exGui := Gui("+AlwaysOnTop +Resize +MinSize760x460", T("llm_examples") " - " llmTitle)
+    exGui.SetFont("s10", "Segoe UI")
+    exGui.AddText("x12 y12 w736", llmCategory " / " llmTitle)
+    exGui.AddText("x12 y42 w250", T("llm_linked_examples"))
+    linkList := exGui.AddListBox("x12 y62 w260 h330")
+    exGui.AddText("x292 y42 w450", T("llm_example_preview"))
+    previewEdit := AddStandardBorderEdit(exGui, 292, 62, 450, 330, "Multi ReadOnly WantTab")
+    btnAdd := exGui.AddButton("x12 y410 w82 h30", T("llm_add_example"))
+    btnRemove := exGui.AddButton("x104 y410 w82 h30", T("llm_remove_example"))
+    btnClose := exGui.AddButton("x660 y410 w82 h30", T("menu_close"))
+
+    state := {
+        gui: exGui,
+        editorState: editorState,
+        llmCategory: llmCategory,
+        llmTitle: llmTitle,
+        linkList: linkList,
+        previewEdit: previewEdit,
+        linkRows: []
+    }
+
+    linkList.OnEvent("Change", LLMExampleManagerSelect.Bind(state))
+    btnAdd.OnEvent("Click", OpenLLMExamplePicker.Bind(state))
+    btnRemove.OnEvent("Click", LLMExampleManagerRemove.Bind(state))
+    btnClose.OnEvent("Click", LLMExampleManagerClose.Bind(state))
+    exGui.OnEvent("Close", LLMExampleManagerClose.Bind(state))
+    exGui.OnEvent("Escape", LLMExampleManagerClose.Bind(state))
+    LLMExampleManagerRefresh(state)
+    exGui.Show("w760 h454")
+}
+
+LLMExampleManagerRefresh(state) {
+    global _EntriesByCategory
+
+    state.linkRows := []
+    LLMListBoxClear(state.linkList)
+    links := LLMExampleLinksForCall(state.llmCategory, state.llmTitle)
+    labels := []
+    for key, _ in links {
+        parts := StrSplit(key, "`t", , 2)
+        if (parts.Length < 2)
+            continue
+        category := parts[1]
+        title := parts[2]
+        if !_EntriesByCategory.Has(category) || !_EntriesByCategory[category].Has(title)
+            continue
+        state.linkRows.Push({category: category, title: title})
+        labels.Push(category " / " title)
+    }
+    if (labels.Length > 0) {
+        state.linkList.Add(labels)
+        state.linkList.Choose(1)
+        LLMExampleManagerSelect(state, state.linkList)
+    } else {
+        state.previewEdit.Value := ""
+    }
+}
+
+LLMExampleManagerSelect(state, ctrl, *) {
+    global _EntriesByCategory
+    idx := ctrl.Value
+    if (idx < 1 || idx > state.linkRows.Length) {
+        state.previewEdit.Value := ""
+        return
+    }
+    item := state.linkRows[idx]
+    if _EntriesByCategory.Has(item.category) && _EntriesByCategory[item.category].Has(item.title)
+        state.previewEdit.Value := _EntriesByCategory[item.category][item.title]
+    else
+        state.previewEdit.Value := ""
+}
+
+LLMExampleManagerRemove(state, *) {
+    idx := state.linkList.Value
+    if (idx < 1 || idx > state.linkRows.Length)
+        return
+    item := state.linkRows[idx]
+    LLMExampleLinkSet(state.llmCategory, state.llmTitle, item.category, item.title, false, true)
+    LLMExampleManagerRefresh(state)
+}
+
+LLMExampleManagerClose(state, *) {
+    try state.gui.Destroy()
+}
+
+OpenLLMExamplePicker(managerState, *) {
+    global _Categories
+
+    if !LoadCurrentSnippetData(&err) {
+        MsgBox err, T("llm_examples")
+        return
+    }
+
+    pickGui := Gui("+AlwaysOnTop +Resize +MinSize680x430", T("llm_add_example"))
+    pickGui.SetFont("s10", "Segoe UI")
+    pickGui.AddText("x12 y12 w180", "Categories")
+    categoryList := pickGui.AddListBox("x12 y32 w190 h310", _Categories)
+    pickGui.AddText("x222 y12 w190", "Entries")
+    entryList := pickGui.AddListBox("x222 y32 w190 h310")
+    pickGui.AddText("x432 y12 w230", T("llm_example_preview"))
+    previewEdit := AddStandardBorderEdit(pickGui, 432, 32, 230, 310, "Multi ReadOnly WantTab")
+    btnAdd := pickGui.AddButton("x500 y360 w74 h30", T("llm_add_example"))
+    btnCancel := pickGui.AddButton("x584 y360 w74 h30", T("hotkey_dialog_cancel"))
+
+    state := {
+        gui: pickGui,
+        managerState: managerState,
+        categoryList: categoryList,
+        entryList: entryList,
+        previewEdit: previewEdit,
+        currentCategory: ""
+    }
+
+    categoryList.OnEvent("Change", LLMExamplePickerCategoryChange.Bind(state))
+    entryList.OnEvent("Change", LLMExamplePickerEntryChange.Bind(state))
+    btnAdd.OnEvent("Click", LLMExamplePickerAdd.Bind(state))
+    btnCancel.OnEvent("Click", LLMExamplePickerClose.Bind(state))
+    pickGui.OnEvent("Close", LLMExamplePickerClose.Bind(state))
+    pickGui.OnEvent("Escape", LLMExamplePickerClose.Bind(state))
+
+    pickGui.Show("w680 h404")
+    if (_Categories.Length > 0) {
+        categoryList.Choose(1)
+        LLMExamplePickerCategoryChange(state, categoryList)
+    }
+}
+
+LLMExamplePickerCategoryChange(state, ctrl, *) {
+    global _EntryOrderByCategory
+    category := ctrl.Text
+    state.currentCategory := category
+    LLMListBoxClear(state.entryList)
+    state.previewEdit.Value := ""
+    if (category = "" || !_EntryOrderByCategory.Has(category))
+        return
+    order := _EntryOrderByCategory[category]
+    if (order.Length > 0) {
+        state.entryList.Add(order)
+        state.entryList.Choose(1)
+        LLMExamplePickerEntryChange(state, state.entryList)
+    }
+}
+
+LLMExamplePickerEntryChange(state, ctrl, *) {
+    global _EntriesByCategory
+    title := ctrl.Text
+    if (state.currentCategory != "" && title != "" && _EntriesByCategory.Has(state.currentCategory) && _EntriesByCategory[state.currentCategory].Has(title))
+        state.previewEdit.Value := _EntriesByCategory[state.currentCategory][title]
+    else
+        state.previewEdit.Value := ""
+}
+
+LLMExamplePickerAdd(state, *) {
+    title := state.entryList.Text
+    if (state.currentCategory = "" || title = "") {
+        SoundBeep 1200
+        return
+    }
+    managerState := state.managerState
+    LLMExampleLinkSet(managerState.llmCategory, managerState.llmTitle, state.currentCategory, title, true, true)
+    LLMExampleManagerRefresh(managerState)
+    try state.gui.Destroy()
+}
+
+LLMExamplePickerClose(state, *) {
+    try state.gui.Destroy()
+}
+
+LLMListBoxClear(ctrl) {
+    Loop SendMessage(0x018B, 0, 0, , "ahk_id " ctrl.Hwnd) ; LB_GETCOUNT
+        ctrl.Delete(1)
 }
 
 LLMCallsExtractAnthropicText(json) {

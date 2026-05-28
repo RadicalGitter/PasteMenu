@@ -82,8 +82,8 @@ phases:
     goal: Capture hotwheel design and backend-first architecture.
     artifacts:
       - docs/HOTWHEEL_DESIGN.md
-      - docs/ROADMAP.md
-      - docs/PROJECT_PROGRESS.md
+      - docs/HOTWHEEL_ROADMAP.md
+      - docs/HOTWHEEL_PROGRESS.md
     acceptance:
       - Design includes invocation, usage scoring, geometry, rendering boundaries, and cancellation rules.
 

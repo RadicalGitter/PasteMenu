@@ -30,7 +30,7 @@ SettingsFile     := DataRootDir "\settings.ini"
 UsageStatsFile   := DataRootDir "\usage.ini"
 LLMPromptFile    := DataRootDir "\llm_prompts.txt"
 LLMResponseLogFile := DataRootDir "\logs\LLMresponselog.md" ; Resolved to local root\llmlogs when saving.
-LLMExampleFile  := DataRootDir "\llm_examples.tsv"
+LLMExampleLinkFile := DataRootDir "\llm_example_links.tsv"
 StorageBootstrapFile := A_AppData "\PasteMenu\storage.ini"
 SnippetEncoding  := "UTF-8"   ; Andra till "CP1252" om filen inte ar UTF-8.
 EnableRichText   := true      ; Forsok klistra in italics + lankar som rich text (HTML).
@@ -53,7 +53,7 @@ _EntryOrderByCategory := Map() ; category -> Array(title)
 _LLMCategories           := []
 _LLMEntriesByCategory    := Map()
 _LLMEntryOrderByCategory := Map()
-_LLMExampleEntries       := Map()
+_LLMExampleLinks         := Map()
 _EditorState          := 0
 _DragState            := 0
 _DragGhost            := 0
@@ -71,6 +71,7 @@ _LastSelectedMenuTitle    := ""
 _PendingPasteTarget   := 0
 _ScriptRunnerState    := 0
 _LLMState             := 0
+_LLMPricingState      := 0
 _UsageStatsState      := 0
 _HotwheelWindowState  := 0
 _HotwheelGdipToken    := 0
@@ -83,6 +84,8 @@ _HotwheelGdipToken    := 0
 #Include .\includes\error_logging.ahk
 #Include .\includes\script_runner.ahk
 #Include .\includes\llm_calls.ahk
+#Include .\includes\llm_pricing.ahk
+#Include .\includes\llm_doc_capture.ahk
 #Include .\includes\runtime_hotkeys.ahk
 #Include .\includes\ui_settings.ahk
 #Include .\includes\ui_hotwheel.ahk
@@ -98,9 +101,9 @@ _HotwheelGdipToken    := 0
 ; Drag/drop handlers for editor list controls.
 OnMessage(0x0201, Editor_OnLButtonDown) ; WM_LBUTTONDOWN
 OnMessage(0x0202, Editor_OnLButtonUp)   ; WM_LBUTTONUP
-OnMessage(0x002B, Editor_OnDrawItem)     ; WM_DRAWITEM
 OnMessage(0x007B, Editor_OnContextMenu) ; WM_CONTEXTMENU
 OnMessage(0x0100, Editor_OnKeyDown)     ; WM_KEYDOWN
+OnMessage(0x0102, Editor_OnChar)        ; WM_CHAR
 OnMessage(0x0006, HotwheelRenderOnActivate) ; WM_ACTIVATE
 SetTimer(UpdatePointerContext, 100)
 

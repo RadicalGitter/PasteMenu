@@ -70,6 +70,9 @@ Write-Host "[STEP] Structural presence checks"
 $required = @(
     "includes\core_storage.ahk",
     "includes\core_usage_stats.ahk",
+    "includes\llm_calls.ahk",
+    "includes\llm_doc_capture.ahk",
+    "includes\llm_pricing.ahk",
     "includes\script_runner.ahk",
     "includes\runtime_hotkeys.ahk",
     "includes\ui_settings.ahk",

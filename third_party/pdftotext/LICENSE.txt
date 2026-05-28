@@ -1,0 +1,10 @@
+Third-party notice for bundled pdftotext.
+
+PasteMenu includes pdftotext.exe from the Xpdf tools by Glyph & Cog, LLC.
+
+Source archive:
+https://dl.xpdfreader.com/xpdf-tools-win-4.06.zip
+
+The upstream GPL license texts are included in:
+- COPYING.txt
+- COPYING3.txt

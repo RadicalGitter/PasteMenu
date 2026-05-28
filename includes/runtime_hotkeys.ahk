@@ -23,16 +23,17 @@ RegisterConfiguredHotkey() {
 DispatchConfiguredHotkey(*) {
     global ConfiguredHotkey, HotwheelHoldThresholdMs
 
+    invocation := CaptureMenuInvocationContext()
     triggerKey := GetHotkeyTriggerKey(ConfiguredHotkey)
     thresholdMs := NormalizeHotwheelHoldThresholdMs(HotwheelHoldThresholdMs)
     if (triggerKey = "") {
-        ShowSnippetMenu()
+        ShowSnippetMenu(invocation)
         return
     }
 
     thresholdSeconds := Format("{:.3f}", thresholdMs / 1000)
     if KeyWait(triggerKey, "T" thresholdSeconds)
-        ShowSnippetMenu()
+        ShowSnippetMenu(invocation)
     else
         ShowHotwheel()
 }

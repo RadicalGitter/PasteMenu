@@ -9,12 +9,19 @@ ClearTransientToolTip() {
 }
 
 ; Checks whether is text input context active.
-IsTextInputContextActive() {
-    activeHwnd := WinActive("A")
+IsTextInputContextActive(invocation := 0) {
+    activeHwnd := IsObject(invocation) && invocation.HasOwnProp("activeHwnd") ? invocation.activeHwnd : WinActive("A")
     if !activeHwnd
         return false
 
     if IsCaretVisible() {
+        RememberTextContext(activeHwnd)
+        return true
+    }
+
+    ; LLM document capture is a valid menu context even without a caret.
+    ; Keep this check cheap: no clipboard, no COM, no document parsing.
+    if LLMDocIsActiveDocumentContext(activeHwnd) {
         RememberTextContext(activeHwnd)
         return true
     }
@@ -48,9 +55,16 @@ IsTextInputContextActive() {
 
     ; Fallback for custom-rendered text fields (browser/Electron/etc):
     ; if mouse is over the active window and cursor is/recently was IBeam, treat as text context.
-    MouseGetPos ,, &mouseWin, &mouseCtrl, 2
+    if IsObject(invocation) && invocation.HasOwnProp("mouseWin") {
+        mouseWin := invocation.mouseWin
+        mouseCtrl := invocation.HasOwnProp("mouseCtrl") ? invocation.mouseCtrl : 0
+        cursor := invocation.HasOwnProp("cursor") ? invocation.cursor : A_Cursor
+    } else {
+        MouseGetPos ,, &mouseWin, &mouseCtrl, 2
+        cursor := A_Cursor
+    }
     if (mouseWin && WindowsShareRootWindow(activeHwnd, mouseWin)) {
-        if (A_Cursor = "IBeam") {
+        if (cursor = "IBeam") {
             RememberTextContext(activeHwnd)
             return true
         }
@@ -93,9 +107,25 @@ IsRecentTextContextWindow(hwnd, maxAgeMs := 10000) {
     return (_TextContextState.lastRoot = GetRootWindow(hwnd))
 }
 
-; Handles capture paste target context.
-CapturePasteTargetContext() {
+; Captures the invocation surface before the tap/hold delay and before any menu exists.
+CaptureMenuInvocationContext() {
+    MouseGetPos &mx, &my, &mouseWin, &mouseCtrl, 2
     activeHwnd := WinActive("A")
+    return {
+        activeHwnd: activeHwnd,
+        mouseX: mx,
+        mouseY: my,
+        mouseWin: mouseWin,
+        mouseCtrl: mouseCtrl,
+        cursor: A_Cursor,
+        pasteTarget: CapturePasteTargetContext(activeHwnd)
+    }
+}
+
+; Handles capture paste target context.
+CapturePasteTargetContext(activeHwnd := 0) {
+    if !activeHwnd
+        activeHwnd := WinActive("A")
     if !activeHwnd
         return 0
 
@@ -713,12 +743,12 @@ MenuLikelyOpensUpward(mouseX, mouseY, categoryCount, shortcutCount := 0) {
 }
 
 ; Opens or shows show snippet menu.
-ShowSnippetMenu(*) {
+ShowSnippetMenu(invocation := 0, *) {
     global SnippetFile, SnippetEncoding, DefaultCategory
     global _Categories, _EntriesByCategory, _EntryOrderByCategory
     global _PendingPasteTarget
 
-    isTextContext := IsTextInputContextActive()
+    isTextContext := IsTextInputContextActive(invocation)
     isFolderContext := ScriptRunnerIsFolderContextActive(&folderContextPath)
 
     if !isTextContext && !isFolderContext {
@@ -726,7 +756,12 @@ ShowSnippetMenu(*) {
         return
     }
 
-    MouseGetPos &mx, &my
+    if IsObject(invocation) && invocation.HasOwnProp("mouseX") {
+        mx := invocation.mouseX
+        my := invocation.mouseY
+    } else {
+        MouseGetPos &mx, &my
+    }
 
     if (isFolderContext && !isTextContext) {
         _PendingPasteTarget := 0
@@ -747,7 +782,9 @@ ShowSnippetMenu(*) {
     }
 
     ScriptRunnerSetInvocationFolder("")
-    _PendingPasteTarget := CapturePasteTargetContext()
+    _PendingPasteTarget := IsObject(invocation) && invocation.HasOwnProp("pasteTarget") ? invocation.pasteTarget : CapturePasteTargetContext()
+    if IsObject(_PendingPasteTarget)
+        _PendingPasteTarget.docContext := LLMDocDetectContext(_PendingPasteTarget)
     shortcutEntries := GetRootShortcutEntries()
     placementMetrics := BuildRootMenuLayoutMetrics(_Categories.Length, shortcutEntries.Length, "paste")
     openUpward := ShouldOpenRootMenuUpward(mx, my, placementMetrics)
@@ -755,11 +792,15 @@ ShowSnippetMenu(*) {
     mainMenu := Menu()
     AddRootMenuSections(mainMenu, openUpward, shortcutEntries, "paste")
 
+    if IsObject(_PendingPasteTarget) && _PendingPasteTarget.HasOwnProp("docContext") && IsObject(_PendingPasteTarget.docContext)
+        LLMDocIndicatorShow(_PendingPasteTarget.docContext, mx, my)
+
     StartMenuOutsideClickWatcher()
     try {
         mainMenu.Show(mx, my)
     } finally {
         StopMenuOutsideClickWatcher()
+        LLMDocIndicatorHide()
     }
 }
 

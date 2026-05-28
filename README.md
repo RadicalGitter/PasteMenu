@@ -40,6 +40,12 @@ Build logs and previous executable backups are written to ignored folders under:
 - `build/logs/`
 - `build/backups/`
 
+Optional PDF text extraction:
+- PasteMenu bundles `pdftotext.exe` from the Xpdf tools by Glyph & Cog, LLC.
+- `pdftotext` is used only for local PDF text extraction when sending LLM requests.
+- The build script copies it to `dist/tools/pdftotext.exe`.
+- Xpdf tools are distributed under GPL licensing; see `third_party/pdftotext/` for license/source notes copied into releases.
+
 ## Validation
 
 Automated smoke checks:
@@ -51,10 +57,19 @@ Manual checklist:
 Behavior parity overview:
 - `docs/BEHAVIOR_PARITY.md`
 
+Release notes:
+- `CHANGELOG.md`
+
 ## Project Structure
 
 - `includes/core_storage.ahk`  
   Storage detection/migration (Dropbox/OneDrive/AppData)
+- `includes/llm_calls.ahk`  
+  Anthropic LLM calls, prompt editor, response UI, and response logging
+- `includes/llm_doc_capture.ahk`  
+  Word/PDF document-context capture for LLM calls
+- `includes/llm_pricing.ahk`  
+  Anthropic model/pricing cache and request cost estimates
 - `includes/script_runner.ahk`  
   Script-folder discovery, extension mapping, and safe script execution
 - `includes/core_snippets_backup.ahk`  
@@ -80,14 +95,15 @@ Short contributor guide:
 Refactor notes and phased plan:
 - `docs/REFACTOR_NOTES.md`
 
-Long-horizon roadmap:
-- `docs/ROADMAP.md`
+Long-horizon roadmaps:
+- `docs/PASTEMENU_ROADMAP.md`
+- `docs/HOTWHEEL_ROADMAP.md`
 
 Hotwheel selector design:
 - `docs/HOTWHEEL_DESIGN.md`
 
-LLM-oriented project progression tracker:
-- `docs/PROJECT_PROGRESS.md`
+LLM-oriented hotwheel progression tracker:
+- `docs/HOTWHEEL_PROGRESS.md`
 
 ## Notes
 

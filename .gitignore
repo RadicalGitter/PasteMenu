@@ -211,6 +211,9 @@ __marimo__/
 PasteMenu_backup_*.exe
 dist/
 build/
+!third_party/
+!third_party/pdftotext/
+!third_party/pdftotext/pdftotext.exe
 
 # Personal Windows shortcuts
 *.lnk

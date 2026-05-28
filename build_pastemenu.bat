@@ -8,6 +8,8 @@ set "BUILD_DIR=%SCRIPT_DIR%build"
 set "BACKUP_DIR=%BUILD_DIR%\backups"
 set "LOG_DIR=%BUILD_DIR%\logs"
 set "OUT=%DIST_DIR%\PasteMenu.exe"
+set "PDFTOTEXT_SRC=%SCRIPT_DIR%third_party\pdftotext\pdftotext.exe"
+set "PDFTOTEXT_DIST_DIR=%DIST_DIR%\tools"
 set "AHK2EXE="
 set "BASEEXE="
 
@@ -147,6 +149,22 @@ if exist "%OUT%" (
   echo Log:
   echo   %LOG%
   echo.
+
+  if exist "%PDFTOTEXT_SRC%" (
+    if not exist "%PDFTOTEXT_DIST_DIR%" mkdir "%PDFTOTEXT_DIST_DIR%"
+    copy /y "%PDFTOTEXT_SRC%" "%PDFTOTEXT_DIST_DIR%\pdftotext.exe" >nul
+    if errorlevel 1 (
+      echo Warning: failed to copy bundled pdftotext.exe.
+      >> "%LOG%" echo Warning: failed to copy bundled pdftotext.exe.
+    ) else (
+      echo Bundled pdftotext:
+      echo   %PDFTOTEXT_DIST_DIR%\pdftotext.exe
+      >> "%LOG%" echo Bundled pdftotext: %PDFTOTEXT_DIST_DIR%\pdftotext.exe
+    )
+    for %%L in ("%SCRIPT_DIR%third_party\pdftotext\*.txt") do (
+      copy /y "%%~L" "%PDFTOTEXT_DIST_DIR%\%%~nxL" >nul
+    )
+  )
 
   echo Launching %OUT%...
   start "" "%OUT%"
