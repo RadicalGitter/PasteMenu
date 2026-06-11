@@ -13,7 +13,7 @@ LLMCallsInitDefaults() {
 
     _LLMState := {
         provider: "anthropic",
-        model: "claude-sonnet-4-20250514",
+        model: "claude-sonnet-4-6",
         maxTokens: 1024,
         timeoutSeconds: 60,
         examplePreface: LLMCallsDefaultExamplePreface(),
@@ -62,6 +62,12 @@ LLMCallsSaveToSettings() {
     IniWrite(_LLMState.maxTokens "", SettingsFile, "llm", "max_tokens")
     IniWrite(_LLMState.timeoutSeconds "", SettingsFile, "llm", "timeout_seconds")
     IniWrite(LLMCallsEncodeSettingsText(_LLMState.examplePreface), SettingsFile, "llm", "example_preface")
+}
+
+LLMCallsUpgradeModelToLatest() {
+    global _LLMState
+    LLMCallsInitDefaults()
+    _LLMState.model := LLMPricingLatestForTier(_LLMState.model)
 }
 
 LLMCallsDefaultExamplePreface() {
@@ -1388,9 +1394,10 @@ OpenLLMSettingsWindow(*) {
     providerDDL.Enabled := false
 
     sGui.AddText("x12 y52 w120", T("llm_model"))
-    modelItems := LLMSettingsBuildModelComboItems(_LLMState.model)
+    latestModel := LLMPricingLatestForTier(_LLMState.model)
+    modelItems := LLMSettingsBuildModelComboItems(latestModel)
     modelCombo := sGui.AddComboBox("x140 y50 w280 vModelCombo", modelItems)
-    modelCombo.Text := _LLMState.model
+    modelCombo.Text := latestModel
     modelPriceText := sGui.AddText("x430 y52 w230 h20", "")
 
     btnUpdatePricing := sGui.AddButton("x140 y82 w170 h26", T("llm_update_pricing"))
@@ -1444,23 +1451,7 @@ OpenLLMSettingsWindow(*) {
 }
 
 LLMSettingsBuildModelComboItems(currentModel) {
-    items := []
-    seen := Map()
-    add(id) {
-        id := Trim(id)
-        if (id = "" || seen.Has(id))
-            return
-        seen[id] := true
-        items.Push(id)
-    }
-    add(currentModel)
-    for _, id in LLMPricingModelList()
-        add(id)
-    LLMPricingInit()
-    global _LLMPricingState
-    for id, _ in _LLMPricingState.prices
-        add(id)
-    return items
+    return LLMPricingLatestTierModels()
 }
 
 LLMSettingsRefreshPricingLabels(state) {
@@ -1482,7 +1473,11 @@ LLMSettingsModelChanged(state, ctrl, *) {
         state.modelPriceText.Text := T("llm_pricing_unknown")
         return
     }
-    state.modelPriceText.Text := Format("${:.2f} in / ${:.2f} out per Mtok", p.input, p.output)
+    sekRate := LLMPricingUsdToSek()
+    if (sekRate > 0)
+        state.modelPriceText.Text := Format("{:.2f} in / {:.2f} out SEK per Mtok", p.input * sekRate, p.output * sekRate)
+    else
+        state.modelPriceText.Text := Format("${:.2f} in / ${:.2f} out per Mtok", p.input, p.output)
 }
 
 LLMSettingsUpdatePricing(state, *) {
@@ -1495,7 +1490,7 @@ LLMSettingsUpdatePricing(state, *) {
     }
 
     ; Rebuild model combo with the freshly fetched list.
-    currentText := Trim(state.modelCombo.Text)
+    currentText := LLMPricingLatestForTier(Trim(state.modelCombo.Text))
     state.modelCombo.Delete()
     items := LLMSettingsBuildModelComboItems(currentText)
     state.modelCombo.Add(items)
@@ -1520,7 +1515,7 @@ LLMSettingsRefreshModels(state, *) {
     _LLMPricingState.modelsUpdated := A_Now
     LLMPricingSave()
 
-    currentText := Trim(state.modelCombo.Text)
+    currentText := LLMPricingLatestForTier(Trim(state.modelCombo.Text))
     state.modelCombo.Delete()
     state.modelCombo.Add(LLMSettingsBuildModelComboItems(currentText))
     state.modelCombo.Text := currentText

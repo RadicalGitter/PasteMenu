@@ -5,10 +5,10 @@
 ;   Falls back to clipboard (Ctrl+A → Ctrl+C) when COM is unavailable
 ;   (e.g. Protected View, UAC mismatch, Office sandbox).
 ; - Extract plain text from PDF readers via clipboard (lazy).
-; - Provide a small "Pending: ..." indicator GUI shown beside the menu.
+; Browser selections use normal selected-text capture. Browser PDF titles are
+; deliberately not treated as document contexts because title-only detection
+; produces false positives on ordinary web pages.
 ; ---------------------------------------------------------------------
-
-global _LLMDocIndicator := 0
 
 ; Detect doc context for a captured paste target. Returns 0 if none.
 LLMDocDetectContext(target) {
@@ -55,15 +55,7 @@ LLMDocIsPdfContext(target, procLower := "") {
         procLower := StrLower(procName)
     }
 
-    if LLMDocIsDedicatedPdfProcess(procLower)
-        return true
-
-    if !LLMDocIsBrowserProcess(procLower)
-        return false
-
-    title := ""
-    try title := WinGetTitle("ahk_id " target.win)
-    return (LLMDocExtractPdfFileName(title) != "")
+    return LLMDocIsDedicatedPdfProcess(procLower)
 }
 
 LLMDocIsDedicatedPdfProcess(procLower) {
@@ -118,23 +110,30 @@ LLMDocDetectWord(target) {
 ; 2. If COM is unavailable, falls back to Ctrl+A → Ctrl+C (plain text).
 LLMDocWordDeferredExtract(target) {
     ; --- COM path (preferred: structured markdown) ---
-    hasSelection := false
     wordApp := 0
     try wordApp := ComObjActive("Word.Application")
     if IsObject(wordApp) {
+        wordWindow := LLMDocWordFindTargetWindow(wordApp, target)
+        if !IsObject(wordWindow)
+            return LLMDocWordClipboardExtract(target)
+
+        selection := 0
+        try selection := wordWindow.Selection
         selText := ""
-        try selText := wordApp.Selection.Text
+        if IsObject(selection)
+            try selText := selection.Text
         selText := LLMDocCleanWordText(selText)
-        hasSelection := (Trim(selText) != "")
-        if hasSelection {
+        if (Trim(selText) != "") {
             md := ""
-            try md := LLMDocWordRangeToMarkdown(wordApp.Selection.Range)
+            try md := LLMDocWordRangeToMarkdown(selection.Range)
             if (Trim(md) != "")
                 return md
-            ; Selection may have cleared — fall through to full doc via COM.
+            ; A known selection is more important than preserving formatting.
+            return selText
         }
+
         activeDoc := 0
-        try activeDoc := wordApp.ActiveDocument
+        try activeDoc := wordWindow.Document
         if IsObject(activeDoc) {
             md := ""
             try md := LLMDocWordRangeToMarkdown(activeDoc.Content)
@@ -145,11 +144,33 @@ LLMDocWordDeferredExtract(target) {
 
     ; --- Clipboard fallback (plain text, no markdown structure) ---
     ; Works when COM is blocked by Protected View, UAC, or Office sandboxing.
-    return LLMDocWordClipboardExtract(target, hasSelection)
+    return LLMDocWordClipboardExtract(target)
 }
 
-; Clipboard-based Word extraction: focus Word, optionally select all, copy.
-LLMDocWordClipboardExtract(target, hasSelection) {
+; Returns the Word window matching the captured target instead of trusting
+; Word.Application.Selection, which may belong to another open document.
+LLMDocWordFindTargetWindow(wordApp, target) {
+    if !IsObject(wordApp) || !IsObject(target) || !target.HasOwnProp("win") || !target.win
+        return 0
+
+    count := 0
+    try count := wordApp.Windows.Count
+    Loop count {
+        wordWindow := 0
+        try wordWindow := wordApp.Windows.Item(A_Index)
+        if !IsObject(wordWindow)
+            continue
+        hwnd := 0
+        try hwnd := wordWindow.Hwnd
+        if (hwnd = target.win)
+            return wordWindow
+    }
+    return 0
+}
+
+; Clipboard-based Word extraction: first copy the user's current selection,
+; then fall back to the whole document only when nothing was selected.
+LLMDocWordClipboardExtract(target) {
     if !LLMDocActivateForCapture(target)
         return ""
 
@@ -164,15 +185,18 @@ LLMDocWordClipboardExtract(target, hasSelection) {
     extracted := ""
     didSelectAll := false
 
-    if !hasSelection {
-        ; No known selection — select the whole document first.
-        LLMDocPdfSetSentinel(sentinel)
-        Send "^a"
-        Sleep 20
-        didSelectAll := true
+    if LLMDocPdfSetSentinel(sentinel) {
+        Send "^c"
+        extracted := LLMDocPdfWaitForClipboard(sentinel, 500)
     }
 
-    if LLMDocPdfSetSentinel(sentinel) {
+    if (Trim(extracted) = "") {
+        ; No current selection — capture the whole document.
+        if !LLMDocPdfSetSentinel(sentinel)
+            return ""
+        Send "^a"
+        Sleep 35
+        didSelectAll := true
         Send "^c"
         extracted := LLMDocPdfWaitForClipboard(sentinel, 1200)
     }
@@ -775,11 +799,18 @@ LLMDocPdfSetSentinel(sentinel) {
 LLMDocActivateForCapture(target) {
     if !IsObject(target) || !target.HasOwnProp("win") || !target.win
         return false
+    if !WinExist("ahk_id " target.win)
+        return false
+
     try WinActivate("ahk_id " target.win)
-    try WinWaitActive("ahk_id " target.win,, 0.1)
+    activated := 0
+    try activated := WinWaitActive("ahk_id " target.win,, 0.35)
+    if !activated
+        return false
+
     if target.HasOwnProp("ctrlName") && target.ctrlName != ""
         try ControlFocus(target.ctrlName, "ahk_id " target.win)
-    Sleep 10
+    Sleep 30
     return true
 }
 
@@ -807,70 +838,6 @@ LLMDocBuildPreview(text) {
     head := SubStr(cleaned, 1, 32)
     tail := SubStr(cleaned, -32)
     return Trim(head) " [...] " Trim(tail)
-}
-
-; ---------------- Indicator GUI ----------------
-
-LLMDocIndicatorShow(docContext, anchorX, anchorY) {
-    global _LLMDocIndicator
-    LLMDocIndicatorHide()
-    if !IsObject(docContext)
-        return
-
-    label := LLMDocIndicatorBuildLabel(docContext)
-    if (label = "")
-        return
-
-    g := Gui("+AlwaysOnTop +ToolWindow -Caption +E0x08000000", "PasteMenu doc")
-    g.BackColor := "FFF6CC"
-    g.SetFont("s9", "Segoe UI")
-    g.MarginX := 10
-    g.MarginY := 6
-    txt := g.AddText("xm ym", label)
-
-    g.Show("Hide AutoSize NoActivate")
-    txt.GetPos(, , &tw, &th)
-    width := tw + 20
-    height := th + 12
-
-    posX := anchorX - 8
-    posY := anchorY - height - 10
-    if (posY < 4)
-        posY := anchorY + 12
-    if (posX < 4)
-        posX := 4
-    if (posX + width > A_ScreenWidth - 4)
-        posX := A_ScreenWidth - width - 4
-    if (posY + height > A_ScreenHeight - 4)
-        posY := A_ScreenHeight - height - 4
-
-    g.Show("x" posX " y" posY " w" width " h" height " NoActivate")
-    _LLMDocIndicator := g
-}
-
-LLMDocIndicatorBuildLabel(docContext) {
-    name := docContext.HasOwnProp("fileName") ? docContext.fileName : ""
-    if (name = "")
-        name := "document"
-
-    if (docContext.kind = "word") {
-        if (docContext.hasSelection)
-            return "Pending: " name " — " (docContext.preview != "" ? '"' docContext.preview '"' : "selection")
-        return "Pending: " name " (Word text extracted on send)"
-    }
-
-    if (docContext.kind = "pdf")
-        return "Pending: " name " (PDF text extracted on send)"
-
-    return ""
-}
-
-LLMDocIndicatorHide() {
-    global _LLMDocIndicator
-    if IsObject(_LLMDocIndicator) {
-        try _LLMDocIndicator.Destroy()
-    }
-    _LLMDocIndicator := 0
 }
 
 ; Resolve the payload markdown to send for an LLM call. Returns "" if none.

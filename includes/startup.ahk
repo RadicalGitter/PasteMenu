@@ -16,6 +16,7 @@ InitOnStartup() {
     LLMCallsEnsurePromptFile()
     LLMExampleLinksLoad()
     LLMPricingLoad()
+    LLMCallsUpgradeModelToLatest()
 
     if (firstRun) {
         MsgBox T("msg_hotkey_firstrun_prompt"), T("msg_hotkey_firstrun_title")

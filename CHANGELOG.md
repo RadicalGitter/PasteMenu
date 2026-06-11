@@ -8,6 +8,7 @@ This project follows the structure of [Keep a Changelog](https://keepachangelog.
 
 ### Added
 
+- Added Claude Fable 5 to the selectable Anthropic model fallbacks and baked pricing.
 - Added per-LLM-call example linking backed by `llm_example_links.tsv`.
 - Added an `Examples...` manager in the LLM call editor for linking normal paste entries as examples for a specific LLM prompt.
 - Added a configurable LLM example preface so linked examples can be framed as style/structure examples.
@@ -23,6 +24,9 @@ This project follows the structure of [Keep a Changelog](https://keepachangelog.
 
 ### Changed
 
+- Pruned the Anthropic model selector to the latest Haiku, Sonnet, Opus, and Fable models, sorted from lowest to highest token cost.
+- Tightened LLM document capture by removing the persistent pending-document indicator, limiting automatic PDF document detection to dedicated PDF readers, and targeting the captured Word window during COM extraction.
+- Changed estimated LLM costs to SEK using a cached USD-to-SEK rate from the ECB daily XML feed.
 - Moved LLM examples out of the normal entry editor and into per-call links from the LLM editor.
 - Deferred Word COM binding from menu-open time to LLM-send time to reduce root menu latency.
 - Changed PDF clipboard fallback to reject copied PDF URLs as document text.

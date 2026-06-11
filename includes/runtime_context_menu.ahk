@@ -792,15 +792,11 @@ ShowSnippetMenu(invocation := 0, *) {
     mainMenu := Menu()
     AddRootMenuSections(mainMenu, openUpward, shortcutEntries, "paste")
 
-    if IsObject(_PendingPasteTarget) && _PendingPasteTarget.HasOwnProp("docContext") && IsObject(_PendingPasteTarget.docContext)
-        LLMDocIndicatorShow(_PendingPasteTarget.docContext, mx, my)
-
     StartMenuOutsideClickWatcher()
     try {
         mainMenu.Show(mx, my)
     } finally {
         StopMenuOutsideClickWatcher()
-        LLMDocIndicatorHide()
     }
 }
 

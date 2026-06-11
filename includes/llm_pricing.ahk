@@ -2,6 +2,7 @@
 ; LLM pricing:
 ; - Locally cached price table fetched from LiteLLM community JSON.
 ; - Cached model list from Anthropic /v1/models.
+; - USD-to-SEK exchange rate fetched from the ECB daily XML feed.
 ; - Cost estimator used by the confirmation window.
 ; - Monthly staleness nag that snoozes 30 days when ignored.
 ; ---------------------------------------------------------------------
@@ -12,14 +13,10 @@ global _LLMPricingState := 0
 ; Values are in USD per 1,000,000 tokens. Will be overwritten when the user runs Update pricing.
 LLMPricingBakedDefaults() {
     return Map(
-        "claude-opus-4-7",            {input: 15.0, output: 75.0, cache_write: 18.75, cache_read: 1.50},
-        "claude-sonnet-4-6",          {input:  3.0, output: 15.0, cache_write:  3.75, cache_read: 0.30},
-        "claude-sonnet-4-20250514",   {input:  3.0, output: 15.0, cache_write:  3.75, cache_read: 0.30},
-        "claude-haiku-4-5-20251001",  {input:  1.0, output:  5.0, cache_write:  1.25, cache_read: 0.10},
-        "claude-3-7-sonnet-latest",   {input:  3.0, output: 15.0, cache_write:  3.75, cache_read: 0.30},
-        "claude-3-5-sonnet-latest",   {input:  3.0, output: 15.0, cache_write:  3.75, cache_read: 0.30},
-        "claude-3-5-haiku-latest",    {input:  0.8, output:  4.0, cache_write:  1.00, cache_read: 0.08},
-        "claude-3-opus-latest",       {input: 15.0, output: 75.0, cache_write: 18.75, cache_read: 1.50}
+        "claude-haiku-4-5-20251001", {input:  1.0, output:  5.0, cache_write:  1.25, cache_read: 0.10},
+        "claude-sonnet-4-6",         {input:  3.0, output: 15.0, cache_write:  3.75, cache_read: 0.30},
+        "claude-opus-4-8",           {input:  5.0, output: 25.0, cache_write:  6.25, cache_read: 0.50},
+        "claude-fable-5",            {input: 10.0, output: 50.0, cache_write: 12.50, cache_read: 1.00}
     )
 }
 
@@ -32,7 +29,9 @@ LLMPricingInit() {
         models: [],
         pricingUpdated: "",
         modelsUpdated: "",
-        nextNagAt: ""
+        nextNagAt: "",
+        usdToSek: 0.0,
+        currencyUpdated: ""
     }
 }
 
@@ -51,6 +50,8 @@ LLMPricingLoad() {
     _LLMPricingState.pricingUpdated := Trim(IniRead(pricingFile, "meta", "pricing_updated", ""))
     _LLMPricingState.modelsUpdated := Trim(IniRead(pricingFile, "meta", "models_updated", ""))
     _LLMPricingState.nextNagAt := Trim(IniRead(pricingFile, "meta", "next_nag_at", ""))
+    _LLMPricingState.usdToSek := IniRead(pricingFile, "meta", "usd_to_sek", "0") + 0
+    _LLMPricingState.currencyUpdated := Trim(IniRead(pricingFile, "meta", "currency_updated", ""))
 
     modelsLine := Trim(IniRead(pricingFile, "models", "list", ""))
     if (modelsLine != "") {
@@ -86,8 +87,13 @@ LLMPricingLoad() {
             cache_read: (cr != "") ? (cr + 0) : 0.0
         }
     }
-    if (fresh.Count > 0)
+    if (fresh.Count > 0) {
+        for id, p in LLMPricingBakedDefaults() {
+            if !fresh.Has(id)
+                fresh[id] := p
+        }
         _LLMPricingState.prices := fresh
+    }
 }
 
 LLMPricingSave() {
@@ -102,6 +108,8 @@ LLMPricingSave() {
     IniWrite(_LLMPricingState.pricingUpdated, pricingFile, "meta", "pricing_updated")
     IniWrite(_LLMPricingState.modelsUpdated, pricingFile, "meta", "models_updated")
     IniWrite(_LLMPricingState.nextNagAt, pricingFile, "meta", "next_nag_at")
+    IniWrite(LLMPricingFormatNumber(_LLMPricingState.usdToSek), pricingFile, "meta", "usd_to_sek")
+    IniWrite(_LLMPricingState.currencyUpdated, pricingFile, "meta", "currency_updated")
 
     modelsLine := ""
     for _, id in _LLMPricingState.models {
@@ -151,6 +159,147 @@ LLMPricingModelList() {
     return _LLMPricingState.models
 }
 
+LLMPricingBakedModelList() {
+    out := []
+    for id, _ in LLMPricingBakedDefaults()
+        out.Push(id)
+    return out
+}
+
+; Returns at most one selectable model for each supported Anthropic tier.
+; Anthropic's /v1/models response is newest-first, so prefer its first ID per
+; tier. Fall back to comparing version components when no API list is cached.
+LLMPricingLatestTierModels() {
+    tierOrder := ["haiku", "sonnet", "opus", "fable"]
+    latest := Map()
+    apiTiers := Map()
+
+    for _, id in LLMPricingModelList() {
+        tier := LLMPricingModelTier(id)
+        if (tier != "" && !latest.Has(tier)) {
+            latest[tier] := id
+            apiTiers[tier] := true
+        }
+    }
+
+    candidates := []
+    for _, id in LLMPricingBakedModelList()
+        candidates.Push(id)
+    LLMPricingInit()
+    global _LLMPricingState
+    for id, _ in _LLMPricingState.prices
+        candidates.Push(id)
+
+    for _, id in candidates {
+        tier := LLMPricingModelTier(id)
+        if (tier = "" || apiTiers.Has(tier))
+            continue
+        if !latest.Has(tier) || LLMPricingIsNewerModel(id, latest[tier])
+            latest[tier] := id
+    }
+
+    out := []
+    for _, tier in tierOrder {
+        if latest.Has(tier)
+            out.Push(latest[tier])
+    }
+    LLMPricingSortModelsByCost(out)
+    return out
+}
+
+LLMPricingLatestForTier(modelId) {
+    tier := LLMPricingModelTier(modelId)
+    if (tier = "")
+        return modelId
+    for _, id in LLMPricingLatestTierModels() {
+        if (LLMPricingModelTier(id) = tier)
+            return id
+    }
+    return modelId
+}
+
+LLMPricingModelTier(modelId) {
+    if RegExMatch(modelId, "i)^claude-(haiku|sonnet|opus|fable)(?:-|$)", &m)
+        return StrLower(m[1])
+    if RegExMatch(modelId, "i)^claude-[0-9]+(?:-[0-9]+)*-(haiku|sonnet|opus|fable)(?:-|$)", &m)
+        return StrLower(m[1])
+    return ""
+}
+
+LLMPricingIsNewerModel(candidate, current) {
+    candidateKey := LLMPricingModelVersionKey(candidate)
+    currentKey := LLMPricingModelVersionKey(current)
+    return (StrCompare(candidateKey, currentKey, "Logical") > 0)
+}
+
+LLMPricingModelVersionKey(modelId) {
+    tier := LLMPricingModelTier(modelId)
+    rest := RegExReplace(StrLower(modelId), "i)^claude-", "")
+    rest := StrReplace(rest, tier, "")
+    rest := StrReplace(rest, "-latest", "")
+    dateValue := 0
+    if RegExMatch(rest, "-(\d{8})$", &dateMatch) {
+        dateValue := dateMatch[1] + 0
+        rest := SubStr(rest, 1, dateMatch.Pos[0] - 1)
+    }
+
+    key := ""
+    pos := 1
+    partCount := 0
+    while (partCount < 4 && matchPos := RegExMatch(rest, "\d+", &part, pos)) {
+        key .= Format("{:010d}", part[0] + 0)
+        partCount += 1
+        pos := matchPos + StrLen(part[0])
+    }
+    while (partCount < 4) {
+        key .= "0000000000"
+        partCount += 1
+    }
+    return key Format("{:010d}", dateValue)
+}
+
+LLMPricingSortModelsByCost(models) {
+    count := models.Length
+    if (count < 2)
+        return
+
+    i := 2
+    while (i <= count) {
+        value := models[i]
+        j := i - 1
+        while (j >= 1 && LLMPricingCompareModels(value, models[j]) < 0) {
+            models[j + 1] := models[j]
+            j -= 1
+        }
+        models[j + 1] := value
+        i += 1
+    }
+}
+
+LLMPricingCompareModels(a, b) {
+    pa := LLMPricingForModel(a)
+    pb := LLMPricingForModel(b)
+    hasA := IsObject(pa)
+    hasB := IsObject(pb)
+    if (hasA && !hasB)
+        return -1
+    if (!hasA && hasB)
+        return 1
+    if (hasA && hasB) {
+        totalA := pa.input + pa.output
+        totalB := pb.input + pb.output
+        if (totalA < totalB)
+            return -1
+        if (totalA > totalB)
+            return 1
+        if (pa.input < pb.input)
+            return -1
+        if (pa.input > pb.input)
+            return 1
+    }
+    return StrCompare(a, b)
+}
+
 LLMPricingEstimateInputTokens(text) {
     if (text = "")
         return 0
@@ -165,8 +314,26 @@ LLMPricingFormatCostLine(modelId, inputTokens, outputMaxTokens) {
     costIn := inputTokens * p.input / 1000000.0
     costOut := outputMaxTokens * p.output / 1000000.0
     total := costIn + costOut
+    sekRate := LLMPricingUsdToSek()
+    if (sekRate > 0) {
+        totalSek := total * sekRate
+        return Format("~{:d} in / {:d} out max → ~{} SEK ({:.2f}/{:.2f} SEK in/out per Mtok)"
+            , inputTokens, outputMaxTokens, LLMPricingFormatSekCost(totalSek), p.input * sekRate, p.output * sekRate)
+    }
     return Format("~{:d} in / {:d} out max → ~${:.4f} (${:.2f} in + ${:.2f} out per Mtok)"
         , inputTokens, outputMaxTokens, total, p.input, p.output)
+}
+
+LLMPricingFormatSekCost(amount) {
+    if (amount < 0.01)
+        return Format("{:.4f}", amount)
+    return Format("{:.2f}", amount)
+}
+
+LLMPricingUsdToSek() {
+    LLMPricingInit()
+    global _LLMPricingState
+    return _LLMPricingState.usdToSek + 0
 }
 
 LLMPricingDaysSinceUpdate() {
@@ -209,6 +376,10 @@ LLMPricingSnoozeNag() {
 
 LLMPricingLiteLLMUrl() {
     return "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
+}
+
+LLMPricingEcbUrl() {
+    return "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"
 }
 
 LLMPricingFetchLiteLLM(&errMsg) {
@@ -276,6 +447,42 @@ LLMPricingFetchModels(&errMsg) {
         return 0
     }
     return LLMPricingParseModels(body)
+}
+
+LLMPricingFetchUsdToSek(&errMsg) {
+    errMsg := ""
+    req := 0
+    try {
+        req := ComObject("WinHttp.WinHttpRequest.5.1")
+        req.SetTimeouts(5000, 10000, 15000, 30000)
+        req.Open("GET", LLMPricingEcbUrl(), false)
+        req.SetRequestHeader("Accept", "application/xml,text/xml")
+        req.Send()
+    } catch as err {
+        errMsg := "Currency network error: " err.Message
+        return 0
+    }
+    status := 0
+    try status := req.Status
+    if (status < 200 || status >= 300) {
+        errMsg := "HTTP " status " from ECB"
+        return 0
+    }
+    body := ""
+    try body := req.ResponseText
+    usdFound := RegExMatch(body, "currency=['\x22]USD['\x22]\s+rate=['\x22]([0-9.]+)['\x22]", &usd)
+    sekFound := RegExMatch(body, "currency=['\x22]SEK['\x22]\s+rate=['\x22]([0-9.]+)['\x22]", &sek)
+    if (!usdFound || !sekFound) {
+        errMsg := "Could not parse USD and SEK rates from ECB."
+        return 0
+    }
+    usdRate := usd[1] + 0
+    sekRate := sek[1] + 0
+    if (usdRate <= 0 || sekRate <= 0) {
+        errMsg := "ECB returned invalid USD or SEK rates."
+        return 0
+    }
+    return sekRate / usdRate
 }
 
 LLMPricingParseModels(json) {
@@ -380,6 +587,8 @@ LLMPricingUpdateAll(&errMsg) {
 
     modelsErr := ""
     models := LLMPricingFetchModels(&modelsErr)
+    currencyErr := ""
+    usdToSek := LLMPricingFetchUsdToSek(&currencyErr)
 
     _LLMPricingState.prices := prices
     _LLMPricingState.pricingUpdated := A_Now
@@ -387,11 +596,17 @@ LLMPricingUpdateAll(&errMsg) {
         _LLMPricingState.models := models
         _LLMPricingState.modelsUpdated := A_Now
     }
+    if (usdToSek > 0) {
+        _LLMPricingState.usdToSek := usdToSek
+        _LLMPricingState.currencyUpdated := A_Now
+    }
     try _LLMPricingState.nextNagAt := DateAdd(A_Now, 30, "Days")
     LLMPricingSave()
 
     if (modelsErr != "" && (!IsObject(models) || models.Length = 0))
         errMsg := "Pricing updated. Model list refresh failed: " modelsErr
+    if (currencyErr != "")
+        errMsg .= (errMsg != "" ? "`r`n" : "Pricing updated. ") "SEK rate refresh failed: " currencyErr
     return true
 }
 
